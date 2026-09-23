@@ -93,6 +93,7 @@ if TYPE_CHECKING:
 from jinja2 import Environment, StrictUndefined
 
 from .examples import CubeMap
+from .mesh import _dumps_scene
 
 # Load JavaScript templates
 _TEMPLATES_DIR = pathlib.Path(__file__).parent / "templates"
@@ -737,17 +738,16 @@ class _BaseHTMLRenderer:
         ]
 
     def _build_scene_data(self) -> dict[str, object]:
-        """Build a complete JSON-serializable scene description.
+        """Build a complete scene description.
 
         Returns
         -------
         dict
             Scene configuration including container, background, lights,
-            actors, camera, etc.
+            actors, camera, etc. Serialize it with ``_dumps_scene``, which
+            handles the ``_Float32Array`` values in it.
 
         """
-        import json as _json  # noqa: PLC0415
-
         actors_data = [self._build_actor_data(info) for info in self.actors]
 
         text_actors_data = self._build_text_actors_data()
@@ -763,17 +763,11 @@ class _BaseHTMLRenderer:
             "lightingMode": self.lighting,
         }
 
-        # Validate JSON serializable
-        _json.dumps(scene)
-
         return scene
 
     def _generate_html(self) -> str:
         """Generate HTML fragment with embedded vtk.js JavaScript."""
-        import json as _json  # noqa: PLC0415
-
-        scene_data = self._build_scene_data()
-        scene_json = _json.dumps(scene_data)
+        scene_json = _dumps_scene(self._build_scene_data())
 
         return _jinja_env.from_string(_RENDERING_TEMPLATE).render(
             VTKJS_CDN=_VTKJS_CDN,
@@ -805,8 +799,7 @@ class _BaseHTMLRenderer:
         """
         import json as _json  # noqa: PLC0415
 
-        scene_data = self._build_scene_data()
-        scene_json = _json.dumps(scene_data)
+        scene_json = _dumps_scene(self._build_scene_data())
 
         # For JupyterLite: pass scene data and container via JS variables
         # so renderer.js can use them directly without DOM lookups.

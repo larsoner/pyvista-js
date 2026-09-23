@@ -1,6 +1,7 @@
 """Test mesh creation and properties."""
 
 import builtins
+import json
 import webbrowser
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from pyvista_js import (
     Sphere,
     UnstructuredGrid,
 )
+from pyvista_js.mesh import _dumps_scene, _Float32Array
 
 
 def test_mesh_creation() -> None:
@@ -1065,7 +1067,7 @@ def test_unstructured_grid_point_data() -> None:
     assert len(pd_arrays) == 1
     assert pd_arrays[0]["name"] == "temperature"
     assert pd_arrays[0]["numberOfComponents"] == 1
-    assert pd_arrays[0]["values"] == [100.0, 200.0, 300.0, 400.0]
+    assert pd_arrays[0]["values"].tolist() == [100.0, 200.0, 300.0, 400.0]
 
 
 def test_unstructured_grid_dict_access() -> None:
@@ -1121,3 +1123,50 @@ def test_unstructured_grid_mixed_cells() -> None:
     polys = data["polys"]
     # tetra: 4 tri faces (16 entries) + 1 triangle (4 entries) = 20
     assert len(polys) == 20
+
+
+def _emitted_source(mesh: PolyData) -> dict:
+    """Return the mesh source as parsed back from the emitted scene JSON."""
+    return json.loads(_dumps_scene(mesh.to_scene_data()))
+
+
+def test_scene_json_float32_round_trip() -> None:
+    """Test that emitted float text round-trips to the identical float32 values."""
+    rng = np.random.default_rng(0)
+    points = rng.standard_normal((1000, 3)) * [1e-3, 50.0, 1e6]
+    mesh = PolyData(points, [3, 0, 1, 2])
+    mesh.point_data["values"] = rng.standard_normal(1000)
+    source = _emitted_source(mesh)
+    for got, want in (
+        (source["points"], points),
+        (source["pointData"][0]["values"], mesh.point_data["values"]),
+    ):
+        np.testing.assert_array_equal(
+            np.array(got, np.float32),
+            np.asarray(want, np.float32).ravel(),
+        )
+    assert source["polys"] == [3, 0, 1, 2]
+
+
+def test_scene_json_float32_size() -> None:
+    """Test that float32 points text is about half of the ``tolist()`` text."""
+    points = np.random.default_rng(0).uniform(-100, 100, (100_000, 3)).astype(np.float32)
+    points_text = _Float32Array(points).to_json()
+    assert len(points_text) < len(json.dumps(points.ravel().tolist())) * 0.55
+
+
+def test_scene_json_uint8_point_data_unchanged() -> None:
+    """Test that uint8 point data is still emitted as plain integers."""
+    mesh = PolyData(np.zeros((2, 3)))
+    mesh.point_data["colors"] = np.array([[255, 0, 0, 255], [0, 128, 0, 255]], np.uint8)
+    array = _emitted_source(mesh)["pointData"][0]
+    assert array["dataType"] == "Uint8Array"
+    assert array["values"] == [255, 0, 0, 255, 0, 128, 0, 255]
+
+
+@pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
+def test_scene_json_non_finite_raises(bad: float) -> None:
+    """Test that NaN and infinite values are rejected rather than emitted."""
+    mesh = PolyData(np.array([[0.0, 0.0, 0.0], [1.0, bad, 0.0]]))
+    with pytest.raises(ValueError, match="NaN or infinite"):
+        _dumps_scene(mesh.to_scene_data())

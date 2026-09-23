@@ -5,6 +5,8 @@ Provides geometric primitives and mesh handling compatible with PyVista API.
 
 from __future__ import annotations
 
+import json
+import re
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -207,6 +209,70 @@ class CellType:
     PYRAMID: int = _CELL_TYPE_PYRAMID
 
 
+class _Float32Array:
+    """A float array that scene JSON emits as the shortest float32 text.
+
+    vtk.js stores these values in a ``Float32Array``, so printing each one
+    with the fewest digits that round-trip to the same float32 is lossless
+    and about half the size of the 17-digit float64 text of ``tolist()``.
+
+    Parameters
+    ----------
+    array : array-like
+        The values, flattened and cast to float32.
+
+    """
+
+    __slots__ = ("array",)
+
+    def __init__(self, array: ArrayLike) -> None:
+        self.array = np.asarray(array, dtype=np.float32).ravel()
+
+    def __len__(self) -> int:
+        return self.array.size
+
+    def tolist(self) -> list[float]:
+        """Return the values as a list of Python floats."""
+        return self.array.tolist()
+
+    def to_json(self) -> str:
+        """Return the values as a JSON array of shortest float32 text."""
+        if not np.isfinite(self.array).all():
+            msg = "Cannot serialize NaN or infinite values to scene JSON"
+            raise ValueError(msg)
+        return "[" + ",".join(self.array.astype(str).tolist()) + "]"
+
+
+_FLOAT32_TOKEN = re.compile(r'"\\u0000pvjs-f32-(\d+)\\u0000"')
+
+
+def _dumps_scene(obj: object) -> str:
+    """Serialize scene data to JSON, splicing in ``_Float32Array`` text.
+
+    Parameters
+    ----------
+    obj : object
+        JSON-serializable data that may contain ``_Float32Array`` values.
+
+    Returns
+    -------
+    str
+        The JSON text.
+
+    """
+    fragments: list[str] = []
+
+    def default(value: object) -> str:
+        if not isinstance(value, _Float32Array):
+            msg = f"Object of type {type(value).__name__} is not JSON serializable"
+            raise TypeError(msg)
+        fragments.append(value.to_json())
+        return f"\x00pvjs-f32-{len(fragments) - 1}\x00"
+
+    text = json.dumps(obj, default=default)
+    return _FLOAT32_TOKEN.sub(lambda match: fragments[int(match.group(1))], text)
+
+
 def _point_data_to_scene(point_data: PointData) -> list[dict[str, object]]:
     """Serialize point-data arrays for the vtk.js template.
 
@@ -229,7 +295,7 @@ def _point_data_to_scene(point_data: PointData) -> list[dict[str, object]]:
             "name": name,
             "numberOfComponents": 1 if array.ndim == 1 else array.shape[1],
             "dataType": "Uint8Array" if array.dtype == np.uint8 else "Float32Array",
-            "values": array.flatten().tolist(),
+            "values": array.flatten().tolist() if array.dtype == np.uint8 else _Float32Array(array),
         }
         for name, array in point_data.items()
     ]
@@ -552,7 +618,7 @@ class PolyData:
             if self._scene_data
             else {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
             }
         )
         base_scene.setdefault("filters", [])
@@ -679,7 +745,7 @@ class PolyData:
             if self._scene_data
             else {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
             }
         )
         base_scene.setdefault("filters", [])
@@ -760,7 +826,7 @@ class PolyData:
             if self._scene_data
             else {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
             }
         )
         base_scene.setdefault("filters", [])
@@ -856,7 +922,7 @@ class PolyData:
             if self._scene_data
             else {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
             }
         )
         base_scene.setdefault("filters", [])
@@ -866,7 +932,7 @@ class PolyData:
                 "type": "contour",
                 "values": contour_values,
                 "scalarName": scalar_name_final,
-                "scalarData": scalar_data.flatten().tolist(),
+                "scalarData": _Float32Array(scalar_data),
             },
         )
 
@@ -982,7 +1048,7 @@ class PolyData:
             if self._scene_data
             else {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
             }
         )
         base_scene.setdefault("filters", [])
@@ -1055,14 +1121,14 @@ class PolyData:
         else:
             data = {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
             }
             if self.faces is not None:
                 data["polys"] = self.faces.tolist()
 
         # Inject texture coordinates
         if self.t_coords is not None:
-            data["tCoords"] = self.t_coords.flatten().tolist()
+            data["tCoords"] = _Float32Array(self.t_coords)
 
         # Inject point data arrays
         if len(self._point_data) > 0:
@@ -1495,7 +1561,7 @@ class UnstructuredGrid:
             polys = self._extract_surface_polys()
             data = {
                 "type": "mesh",
-                "points": self.points.flatten().tolist(),
+                "points": _Float32Array(self.points),
                 "polys": polys,
             }
 
