@@ -22,6 +22,7 @@ from pyvista_js import (
     Sphere,
     UnstructuredGrid,
 )
+from pyvista_js import mesh as mesh_module
 from pyvista_js.mesh import _dumps_scene, _Float32Array
 
 
@@ -1125,11 +1126,21 @@ def test_unstructured_grid_mixed_cells() -> None:
     assert len(polys) == 20
 
 
+@pytest.fixture(params=["orjson", "json"])
+def json_backend(request, monkeypatch) -> None:
+    """Serialize scene JSON with orjson, or with the standard-library fallback."""
+    if request.param == "orjson":
+        pytest.importorskip("orjson")
+    else:
+        monkeypatch.setattr(mesh_module, "orjson", None)
+
+
 def _emitted_source(mesh: PolyData) -> dict:
     """Return the mesh source as parsed back from the emitted scene JSON."""
     return json.loads(_dumps_scene(mesh.to_scene_data()))
 
 
+@pytest.mark.usefixtures("json_backend")
 def test_scene_json_float32_round_trip() -> None:
     """Test that emitted float text round-trips to the identical float32 values."""
     rng = np.random.default_rng(0)
@@ -1155,6 +1166,7 @@ def test_scene_json_float32_size() -> None:
     assert len(points_text) < len(json.dumps(points.ravel().tolist())) * 0.55
 
 
+@pytest.mark.usefixtures("json_backend")
 def test_scene_json_is_compact() -> None:
     """Test that scene JSON has no whitespace after separators."""
     mesh = PolyData(np.zeros((3, 3)), [3, 0, 1, 2])
@@ -1166,6 +1178,7 @@ def test_scene_json_is_compact() -> None:
     assert '": ' not in text
 
 
+@pytest.mark.usefixtures("json_backend")
 def test_scene_json_uint8_point_data_unchanged() -> None:
     """Test that uint8 point data is still emitted as plain integers."""
     mesh = PolyData(np.zeros((2, 3)))
@@ -1175,6 +1188,7 @@ def test_scene_json_uint8_point_data_unchanged() -> None:
     assert array["values"] == [255, 0, 0, 255, 0, 128, 0, 255]
 
 
+@pytest.mark.usefixtures("json_backend")
 @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
 def test_scene_json_non_finite_raises(bad: float) -> None:
     """Test that NaN and infinite values are rejected rather than emitted."""

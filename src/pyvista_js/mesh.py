@@ -11,6 +11,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+try:
+    import orjson
+except ImportError:
+    orjson = None
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -235,12 +240,16 @@ class _Float32Array:
         """Return the values as a list of Python floats."""
         return self.array.tolist()
 
-    def to_json(self) -> str:
-        """Return the values as a JSON array of shortest float32 text."""
+    def finite(self) -> np.ndarray:
+        """Return the values, checking that JSON can represent them."""
         if not np.isfinite(self.array).all():
             msg = "Cannot serialize NaN or infinite values to scene JSON"
             raise ValueError(msg)
-        return "[" + ",".join(self.array.astype(str).tolist()) + "]"
+        return self.array
+
+    def to_json(self) -> str:
+        """Return the values as a JSON array of shortest float32 text."""
+        return "[" + ",".join(self.finite().astype(str).tolist()) + "]"
 
 
 _FLOAT32_TOKEN = re.compile(r'"\\u0000pvjs-f32-(\d+)\\u0000"')
@@ -248,6 +257,9 @@ _FLOAT32_TOKEN = re.compile(r'"\\u0000pvjs-f32-(\d+)\\u0000"')
 
 def _dumps_scene(obj: object) -> str:
     """Serialize scene data to compact JSON, splicing in ``_Float32Array`` text.
+
+    Uses orjson when it is installed, which is several times faster and
+    writes the same values.
 
     Parameters
     ----------
@@ -260,6 +272,21 @@ def _dumps_scene(obj: object) -> str:
         The JSON text.
 
     """
+    if orjson is not None:
+
+        def to_array(value: object) -> np.ndarray:
+            if not isinstance(value, _Float32Array):
+                raise TypeError
+            return value.finite()
+
+        try:
+            return orjson.dumps(obj, default=to_array, option=orjson.OPT_SERIALIZE_NUMPY).decode()
+        except TypeError as err:
+            # orjson wraps errors from ``default``; surface the NaN check as is
+            if isinstance(err.__cause__, ValueError):
+                raise err.__cause__ from None
+            raise
+
     fragments: list[str] = []
 
     def default(value: object) -> str:
