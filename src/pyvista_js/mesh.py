@@ -14,7 +14,7 @@ import numpy as np
 try:
     import orjson
 except ImportError:
-    orjson = None
+    orjson = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -287,7 +287,7 @@ def _dumps_scene(obj: object) -> str:
                 raise err.__cause__ from None
             raise
 
-    fragments: list[str] = []
+    fragments: list[str] = []  # type: ignore[unreachable]
 
     def default(value: object) -> str:
         if not isinstance(value, _Float32Array):
