@@ -604,11 +604,11 @@ def test_update_actor_colors_in_place(page: Page, plain: bool) -> None:  # noqa:
     js_errors: list[str] = []
     page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
     _load_plotter_html(page, plotter)
-    container_id = plotter._container_id
+    container_id = plotter.container_id
     page.evaluate("id => { window.__firstWindow = window.__pvjs[id].renderWindow; }", container_id)
     before = page.locator("canvas").screenshot()
 
-    update = plotter.update_actor(0, point_data={"colors": red[:, ::-1].copy()})
+    update = plotter.update_actor(0, point_data={"colors": red[:, ::-1].copy()}, send=False)
     page.evaluate(
         "([id, update]) => window.pvjsApplyUpdate(id, update)",
         [container_id, json.loads(scene_to_json(update))],

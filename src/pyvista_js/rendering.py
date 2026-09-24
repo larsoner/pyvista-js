@@ -78,6 +78,7 @@ import webbrowser
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
     from typing import Self
 
@@ -650,7 +651,7 @@ class _BaseHTMLRenderer:
         actor_index: int,
         *,
         points: ArrayLike | None = None,
-        point_data: dict[str, ArrayLike] | None = None,
+        point_data: Mapping[str, ArrayLike] | None = None,
         scalars: str | None = None,
     ) -> dict[str, object]:
         """Update an actor's data and build the message that applies it in the page.
@@ -667,7 +668,7 @@ class _BaseHTMLRenderer:
             Index of the actor in :attr:`actors`, in the order it was added.
         points : array-like, optional
             New ``(n_points, 3)`` coordinates. The number of points cannot change.
-        point_data : dict, optional
+        point_data : mapping, optional
             Point-data arrays to add or replace, by name.
         scalars : str, optional
             Name of the point-data array to color by. Without it, the coloring

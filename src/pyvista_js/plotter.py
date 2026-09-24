@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from .rendering import IPYTHON_AVAILABLE, _BaseHTMLRenderer, get_renderer
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import numpy as np
@@ -419,20 +420,40 @@ class Plotter:
         """
         return self._renderer.generate_standalone_html()
 
+    @property
+    def container_id(self) -> str:
+        """Return the ID of the HTML element that the scene renders into.
+
+        Pass it to ``window.pvjsApplyUpdate`` along with a message from
+        :meth:`update_actor` to update the rendered page in place.
+
+        Examples
+        --------
+        >>> import pyvista_js as pv
+        >>> plotter = pv.Plotter()
+        >>> _ = plotter.add_mesh(pv.Sphere())
+        >>> f'id="{plotter.container_id}"' in plotter.generate_standalone_html()
+        True
+
+        """
+        return str(getattr(self._renderer, "container_id", self._container_id))
+
     def update_actor(
         self,
         actor_index: int,
         *,
         points: ArrayLike | None = None,
-        point_data: dict[str, ArrayLike] | None = None,
+        point_data: Mapping[str, ArrayLike] | None = None,
         scalars: str | None = None,
+        send: bool = True,
     ) -> dict[str, object]:
         """Update an actor's data in place, without re-rendering the whole scene.
 
         In a notebook, the update is sent to the scene shown by :meth:`show`.
-        To apply it some other way, pass the returned message, serialized with
+        To apply it some other way, such as in a page you embedded yourself,
+        pass ``send=False`` and hand the returned message, serialized with
         :func:`pyvista_js.rendering.scene_to_json`, to
-        ``window.pvjsApplyUpdate(containerId, message)`` in the page.
+        ``window.pvjsApplyUpdate(plotter.container_id, message)`` in the page.
 
         Parameters
         ----------
@@ -440,10 +461,13 @@ class Plotter:
             Index of the actor, in the order it was added.
         points : array-like, optional
             New ``(n_points, 3)`` coordinates. The number of points cannot change.
-        point_data : dict, optional
+        point_data : mapping, optional
             Point-data arrays to add or replace, by name.
         scalars : str, optional
             Name of the point-data array to color by.
+        send : bool, default=True
+            Whether to send the update to the scene shown by :meth:`show` in a
+            notebook. The mesh is updated either way.
 
         Returns
         -------
@@ -473,7 +497,7 @@ class Plotter:
             point_data=point_data,
             scalars=scalars,
         )
-        if IPYTHON_AVAILABLE and getattr(renderer, "use_ipython", False):
+        if send and IPYTHON_AVAILABLE and getattr(renderer, "use_ipython", False):
             from IPython.display import Javascript, display  # noqa: PLC0415
 
             display(Javascript(renderer._generate_update_js(update)))  # noqa: SLF001

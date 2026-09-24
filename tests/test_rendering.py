@@ -3,6 +3,8 @@
 import json
 import logging
 import re
+import sys
+import types
 from pathlib import Path
 
 import numpy as np
@@ -625,3 +627,27 @@ def test_plotter_update_actor_requires_html_renderer() -> None:
     plotter._renderer = MockRenderer()
     with pytest.raises(NotImplementedError, match="MockRenderer"):
         plotter.update_actor(0)
+
+
+def test_plotter_update_actor_send(monkeypatch) -> None:
+    """Test that update_actor sends to the notebook scene unless told not to."""
+    from pyvista_js import plotter as plotter_module  # noqa: PLC0415
+
+    shown: list[str] = []
+    ipython = types.ModuleType("IPython")
+    display = types.ModuleType("IPython.display")
+    display.Javascript = lambda code: code  # type: ignore[attr-defined]
+    display.display = shown.append  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "IPython", ipython)
+    monkeypatch.setitem(sys.modules, "IPython.display", display)
+    monkeypatch.setattr(plotter_module, "IPYTHON_AVAILABLE", True)
+    plotter = Plotter()
+    plotter._renderer = _colored_quad_renderer()
+    plotter._renderer.use_ipython = True  # type: ignore[attr-defined]
+    colors = {"colors": np.ones((4, 3), np.uint8)}
+
+    plotter.update_actor(0, point_data=colors, send=False)
+    assert shown == []
+    plotter.update_actor(0, point_data=colors)
+    assert len(shown) == 1
+    assert shown[0].startswith(f'window.pvjsApplyUpdate("{plotter.container_id}",')
