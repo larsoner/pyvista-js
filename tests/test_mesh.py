@@ -1155,6 +1155,17 @@ def test_scene_json_float32_size() -> None:
     assert len(points_text) < len(json.dumps(points.ravel().tolist())) * 0.55
 
 
+def test_scene_json_is_compact() -> None:
+    """Test that scene JSON has no whitespace after separators."""
+    mesh = PolyData(np.zeros((3, 3)), [3, 0, 1, 2])
+    mesh.point_data["colors"] = np.full((3, 3), 255, np.uint8)
+    text = _dumps_scene(mesh.to_scene_data())
+    assert '"polys":[3,0,1,2]' in text
+    assert '"values":[255,255,255,' in text
+    assert ", " not in text
+    assert '": ' not in text
+
+
 def test_scene_json_uint8_point_data_unchanged() -> None:
     """Test that uint8 point data is still emitted as plain integers."""
     mesh = PolyData(np.zeros((2, 3)))

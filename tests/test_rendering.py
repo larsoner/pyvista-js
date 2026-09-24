@@ -616,7 +616,7 @@ def test_generate_update_js() -> None:
     renderer = _colored_quad_renderer()
     renderer.create_container("my-scene")
     js = renderer._generate_update_js(renderer.build_update_data(0))
-    assert js == 'window.pvjsApplyUpdate("my-scene", {"actor": 0});\n'
+    assert js == 'window.pvjsApplyUpdate("my-scene", {"actor":0});\n'
 
 
 def test_plotter_update_actor_requires_html_renderer() -> None:

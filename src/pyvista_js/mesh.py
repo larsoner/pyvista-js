@@ -247,7 +247,7 @@ _FLOAT32_TOKEN = re.compile(r'"\\u0000pvjs-f32-(\d+)\\u0000"')
 
 
 def _dumps_scene(obj: object) -> str:
-    """Serialize scene data to JSON, splicing in ``_Float32Array`` text.
+    """Serialize scene data to compact JSON, splicing in ``_Float32Array`` text.
 
     Parameters
     ----------
@@ -269,7 +269,7 @@ def _dumps_scene(obj: object) -> str:
         fragments.append(value.to_json())
         return f"\x00pvjs-f32-{len(fragments) - 1}\x00"
 
-    text = json.dumps(obj, default=default)
+    text = json.dumps(obj, default=default, separators=(",", ":"))
     return _FLOAT32_TOKEN.sub(lambda match: fragments[int(match.group(1))], text)
 
 
