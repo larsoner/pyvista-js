@@ -82,6 +82,7 @@ if TYPE_CHECKING:
     from typing import Self
 
     import numpy as np
+    from numpy.typing import ArrayLike
 
     from .camera import Camera
     from .light import Light
@@ -94,6 +95,27 @@ from jinja2 import Environment, StrictUndefined
 
 from .examples import CubeMap
 from .mesh import _dumps_scene
+
+
+def scene_to_json(data: object) -> str:
+    """Serialize scene or update data, as built by pyvista-js, to JSON.
+
+    Float arrays are written with the fewest digits that give back the same
+    float32 values, which is what vtk.js stores.
+
+    Parameters
+    ----------
+    data : object
+        The data, such as the output of ``build_update_data``.
+
+    Returns
+    -------
+    str
+        The JSON text.
+
+    """
+    return _dumps_scene(data)
+
 
 # Load JavaScript templates
 _TEMPLATES_DIR = pathlib.Path(__file__).parent / "templates"
@@ -602,6 +624,98 @@ class _BaseHTMLRenderer:
             )
         return lights_data
 
+    @staticmethod
+    def _build_scalars_data(actor_info: dict[str, object]) -> dict[str, object] | None:
+        """Build the scalar-coloring configuration of an actor, if it has one."""
+        scalars_name = actor_info.get("scalars")
+        if scalars_name is None:
+            return None
+        scalars_array = actor_info["mesh"].point_data[str(scalars_name)]  # type: ignore[attr-defined]
+        # a uint8 RGB(A) array is used as the colors directly, with no colormap
+        rgb_components = (3, 4)
+        direct = (
+            scalars_array.dtype == "uint8"
+            and scalars_array.ndim == 2  # noqa: PLR2004
+            and scalars_array.shape[1] in rgb_components
+        )
+        return {
+            "arrayName": scalars_name,
+            "cmap": actor_info.get("cmap", "viridis"),
+            "range": [float(scalars_array.min()), float(scalars_array.max())],
+            "direct": direct,
+        }
+
+    def build_update_data(
+        self,
+        actor_index: int,
+        *,
+        points: ArrayLike | None = None,
+        point_data: dict[str, ArrayLike] | None = None,
+        scalars: str | None = None,
+    ) -> dict[str, object]:
+        """Update an actor's data and build the message that applies it in the page.
+
+        The actor's mesh is updated too, so HTML generated afterwards shows the
+        new data. Apply the message in a rendered page with
+        ``window.pvjsApplyUpdate(containerId, message)``, after serializing it
+        with :func:`scene_to_json`. Updates reach the rendered mesh through
+        smooth-shading normals, but not through filters such as ``clip``.
+
+        Parameters
+        ----------
+        actor_index : int
+            Index of the actor in :attr:`actors`, in the order it was added.
+        points : array-like, optional
+            New ``(n_points, 3)`` coordinates. The number of points cannot change.
+        point_data : dict, optional
+            Point-data arrays to add or replace, by name.
+        scalars : str, optional
+            Name of the point-data array to color by. Without it, the coloring
+            is re-sent only when its array is in ``point_data``.
+
+        Returns
+        -------
+        dict
+            The update message, with ``"actor"`` and whichever of ``"points"``,
+            ``"pointData"`` and ``"scalars"`` changed.
+
+        Raises
+        ------
+        ValueError
+            If an array does not have one row per point, or ``points`` is given
+            for a mesh that is not defined by its points.
+
+        """
+        import numpy as np  # noqa: PLC0415
+
+        from .mesh import _Float32Array, _point_data_to_scene  # noqa: PLC0415
+
+        actor_info = self.actors[actor_index]
+        mesh = actor_info["mesh"]
+        update: dict[str, object] = {"actor": actor_index}
+        if points is not None:
+            points = np.asarray(points, dtype=float)
+            if mesh._scene_data is not None or points.shape != mesh.points.shape:  # type: ignore[attr-defined]  # noqa: SLF001
+                msg = f"points must replace the {mesh.points.shape} points of a plain mesh"  # type: ignore[attr-defined]
+                raise ValueError(msg)
+            mesh.points = points  # type: ignore[attr-defined]
+            update["points"] = _Float32Array(points)
+        if point_data:
+            for name, array in point_data.items():
+                array = np.asarray(array)  # noqa: PLW2901
+                if len(array) != mesh.n_points:  # type: ignore[attr-defined]
+                    msg = f"point_data[{name!r}] has {len(array)} rows, expected {mesh.n_points}"  # type: ignore[attr-defined]
+                    raise ValueError(msg)
+                mesh.point_data[name] = array  # type: ignore[attr-defined]
+            update["pointData"] = _point_data_to_scene(
+                {name: mesh.point_data[name] for name in point_data},  # type: ignore[attr-defined]
+            )
+        if scalars is not None:
+            actor_info["scalars"] = scalars
+        if scalars is not None or actor_info.get("scalars") in (point_data or {}):
+            update["scalars"] = self._build_scalars_data(actor_info)
+        return update
+
     def _build_actor_data(self, actor_info: dict[str, object]) -> dict[str, object]:
         """Build JSON-serializable actor configuration."""
         mesh = actor_info["mesh"]
@@ -626,25 +740,7 @@ class _BaseHTMLRenderer:
         if texture is not None:
             texture_data = {"url": getattr(texture, "url", "")}
 
-        # Scalars
-        scalars_data = None
-        scalars_name = actor_info.get("scalars")
-        if scalars_name is not None:
-            cmap = actor_info.get("cmap", "viridis")
-            scalars_array = mesh.point_data[str(scalars_name)]  # type: ignore[attr-defined]
-            # a uint8 RGB(A) array is used as the colors directly, with no colormap
-            rgb_components = (3, 4)
-            direct = (
-                scalars_array.dtype == "uint8"
-                and scalars_array.ndim == 2  # noqa: PLR2004
-                and scalars_array.shape[1] in rgb_components
-            )
-            scalars_data = {
-                "arrayName": scalars_name,
-                "cmap": cmap,
-                "range": [float(scalars_array.min()), float(scalars_array.max())],
-                "direct": direct,
-            }
+        scalars_data = self._build_scalars_data(actor_info)
 
         # PBR
         pbr_data = None
@@ -788,6 +884,14 @@ class _BaseHTMLRenderer:
             "<head><meta charset='utf-8'></head>\n"
             "<body>\n" + fragment + "\n</body>\n"
             "</html>\n"
+        )
+
+    def _generate_update_js(self, update: dict[str, object]) -> str:
+        """Generate JavaScript that applies an update message to the rendered scene."""
+        import json as _json  # noqa: PLC0415
+
+        return (
+            f"window.pvjsApplyUpdate({_json.dumps(self.container_id)}, {scene_to_json(update)});\n"
         )
 
     def _generate_render_js(self) -> str:

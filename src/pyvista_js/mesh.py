@@ -273,7 +273,7 @@ def _dumps_scene(obj: object) -> str:
     return _FLOAT32_TOKEN.sub(lambda match: fragments[int(match.group(1))], text)
 
 
-def _point_data_to_scene(point_data: PointData) -> list[dict[str, object]]:
+def _point_data_to_scene(point_data: PointData | dict[str, np.ndarray]) -> list[dict[str, object]]:
     """Serialize point-data arrays for the vtk.js template.
 
     Unsigned 8-bit arrays are sent as ``Uint8Array`` so vtk.js can use them
@@ -281,8 +281,8 @@ def _point_data_to_scene(point_data: PointData) -> list[dict[str, object]]:
 
     Parameters
     ----------
-    point_data : PointData
-        The arrays to serialize.
+    point_data : PointData or dict
+        The arrays to serialize, by name.
 
     Returns
     -------

@@ -13,6 +13,7 @@ In production use, vtk.js could be vendored locally to avoid this dependency.
 
 from __future__ import annotations
 
+import json
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -571,3 +572,55 @@ def test_ply_reader_from_file_renders_in_browser(page: Page) -> None:
     canvas = page.query_selector("canvas")
     assert canvas is not None, "Canvas element not found for PLY reader mesh"
     assert len(js_errors) == 0, f"JavaScript errors during PLY rendering: {js_errors}"
+
+
+@pytest.mark.playwright
+@pytest.mark.parametrize("plain", [False, True])
+def test_update_actor_colors_in_place(page: Page, plain: bool) -> None:  # noqa: FBT001
+    """Test that pvjsApplyUpdate recolors a mesh without rebuilding the scene.
+
+    Parameters
+    ----------
+    page : Page
+        Playwright page fixture for browser automation.
+    plain : bool
+        Whether to use a mesh given by points and faces rather than a sphere source.
+
+    """
+    import numpy as np  # noqa: PLC0415
+
+    from pyvista_js import PolyData  # noqa: PLC0415
+    from pyvista_js.rendering import BrowserRenderer, scene_to_json  # noqa: PLC0415
+
+    mesh = Sphere()
+    if plain:
+        points = [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]]
+        mesh = PolyData(np.array(points, float), [3, 0, 1, 2, 3, 0, 2, 3])
+    red = np.tile(np.array([255, 0, 0], np.uint8), (mesh.n_points, 1))
+    mesh.point_data["colors"] = red
+    plotter = Plotter()
+    plotter._renderer = BrowserRenderer()
+    plotter.add_mesh(mesh, scalars="colors")
+    js_errors: list[str] = []
+    page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
+    _load_plotter_html(page, plotter)
+    container_id = plotter._container_id
+    page.evaluate("id => { window.__firstWindow = window.__pvjs[id].renderWindow; }", container_id)
+    before = page.locator("canvas").screenshot()
+
+    update = plotter.update_actor(0, point_data={"colors": red[:, ::-1].copy()})
+    page.evaluate(
+        "([id, update]) => window.pvjsApplyUpdate(id, update)",
+        [container_id, json.loads(scene_to_json(update))],
+    )
+    page.wait_for_timeout(500)
+    after = page.locator("canvas").screenshot()
+
+    assert after != before, "Canvas did not change after the update"
+    assert page.locator("canvas").count() == 1
+    assert page.evaluate(
+        "id => Object.keys(window.__pvjs).length === 1"
+        " && window.__pvjs[id].renderWindow === window.__firstWindow",
+        container_id,
+    )
+    assert js_errors == []

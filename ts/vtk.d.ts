@@ -34,6 +34,7 @@ interface VtkPointData {
   setTcoords: (array: VtkDataArray) => void;
   setActiveScalars: (name: string) => void;
   getArrayByName: (name: string) => VtkDataArray | undefined;
+  removeArray: (name: string) => void;
 }
 
 /** A set of 3D points. */
@@ -57,6 +58,7 @@ interface VtkPolyData {
   getPolys: () => VtkCellArray;
   getLines: () => VtkCellArray;
   getPointData: () => VtkPointData;
+  modified: () => void;
 }
 
 /** An implicit plane defined by origin and normal. */
@@ -501,11 +503,37 @@ interface SceneData {
 }
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions, jsdoc/require-jsdoc -- global interface augmentation requires interface, not type
+/** The vtk.js objects behind one scene actor, kept so updates can reach them. */
+interface ActorHandle {
+  polydata: VtkPolyData;
+  mapper: VtkMapper;
+  actor: VtkActor;
+}
+
+/** The vtk.js objects of one rendered scene, keyed by container ID on `window.__pvjs`. */
+interface SceneHandle {
+  renderWindow: VtkRenderWindow;
+  renderer: VtkRenderer;
+  /** Indexed like `SceneData.actors`; undefined where an actor could not be built. */
+  actors: (ActorHandle | undefined)[];
+}
+
+/** An in-place update of one actor, as built by `build_update_data` in Python. */
+interface ActorUpdate {
+  /** Index of the actor in `SceneData.actors`. */
+  actor: number;
+  points?: number[];
+  pointData?: PointDataArray[];
+  scalars?: ScalarsConfig;
+}
+
 interface Window {
   renderer: VtkRenderer;
   renderWindow: VtkRenderWindow;
   openGlRenderWindow: VtkOpenGlRenderWindow;
   interactor: VtkInteractor;
+  __pvjs?: Record<string, SceneHandle>;
+  pvjsApplyUpdate: (containerId: string, update: ActorUpdate) => void;
 }
 
 /** Maps reader type names to their vtk.js factory and parse method. */

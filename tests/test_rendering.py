@@ -1,11 +1,15 @@
 """Test vtk.js rendering backend."""
 
+import json
 import logging
+import re
+from pathlib import Path
 
+import numpy as np
 import pytest
 
-from pyvista_js import Cube, Cylinder, PolyData, Sphere, rendering
-from pyvista_js.rendering import BrowserRenderer, MockRenderer, get_renderer
+from pyvista_js import Cube, Cylinder, Plotter, PolyData, Sphere, rendering
+from pyvista_js.rendering import BrowserRenderer, MockRenderer, get_renderer, scene_to_json
 
 
 def test_get_renderer_returns_browser() -> None:
@@ -531,3 +535,93 @@ def test_smooth_shading_with_actor_index(monkeypatch) -> None:
     # Second actor (Cube with smooth_shading=False): flat shading
     actor1 = scene["actors"][1]
     assert actor1["shading"] == "flat"
+
+
+def _ts_interface_fields(name: str) -> set[str]:
+    """Return the field names of a TypeScript interface in ``ts/vtk.d.ts``."""
+    source = (Path(__file__).parents[1] / "ts" / "vtk.d.ts").read_text()
+    match = re.search(rf"^interface {name} \{{\n(.*?)^\}}", source, re.DOTALL | re.MULTILINE)
+    assert match is not None, name
+    return set(re.findall(r"^  (\w+)\??:", match.group(1), re.MULTILINE))
+
+
+def _colored_quad_renderer() -> BrowserRenderer:
+    """Return a renderer with one quad colored by a uint8 RGB array."""
+    mesh = PolyData(np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]], float), [4, 0, 1, 2, 3])
+    mesh.point_data["colors"] = np.zeros((4, 3), np.uint8)
+    renderer = BrowserRenderer()
+    renderer.add_mesh_actor(mesh, scalars="colors")
+    return renderer
+
+
+def test_build_update_data_matches_ts_schema() -> None:
+    """Test that update messages use exactly the fields the TypeScript side reads."""
+    renderer = _colored_quad_renderer()
+    points = renderer.actors[0]["mesh"].points + 1
+    update = json.loads(
+        scene_to_json(
+            renderer.build_update_data(
+                0,
+                points=points,
+                point_data={"colors": np.full((4, 3), 255, np.uint8), "t": np.arange(4.0)},
+            ),
+        ),
+    )
+    assert set(update) == _ts_interface_fields("ActorUpdate")
+    for array in update["pointData"]:
+        assert set(array) == _ts_interface_fields("PointDataArray")
+    assert set(update["scalars"]) == _ts_interface_fields("ScalarsConfig")
+    assert update["actor"] == 0
+    assert update["points"] == points.ravel().tolist()
+    colors, t = update["pointData"]
+    assert (colors["dataType"], colors["values"]) == ("Uint8Array", [255] * 12)
+    assert (t["dataType"], t["values"]) == ("Float32Array", [0.0, 1.0, 2.0, 3.0])
+    assert update["scalars"] == {
+        "arrayName": "colors",
+        "cmap": "viridis",
+        "range": [255.0, 255.0],
+        "direct": True,
+    }
+
+
+def test_build_update_data_updates_mesh_and_scene() -> None:
+    """Test that an update is kept in the mesh, so later pages show it."""
+    renderer = _colored_quad_renderer()
+    update = renderer.build_update_data(0, point_data={"t": np.arange(4.0)}, scalars="t")
+    assert update["scalars"]["arrayName"] == "t"  # type: ignore[index]
+    source = renderer._build_scene_data()["actors"][0]  # type: ignore[index]
+    assert source["scalars"]["arrayName"] == "t"
+    assert [array["name"] for array in source["source"]["pointData"]] == ["colors", "t"]
+    # the coloring is only re-sent when it may have changed
+    assert set(renderer.build_update_data(0, point_data={"colors": np.ones((4, 3), np.uint8)})) == {
+        "actor",
+        "pointData",
+    }
+
+
+def test_build_update_data_rejects_wrong_sizes() -> None:
+    """Test that updates cannot change the number of points."""
+    renderer = _colored_quad_renderer()
+    with pytest.raises(ValueError, match="3 rows, expected 4"):
+        renderer.build_update_data(0, point_data={"colors": np.zeros((3, 3), np.uint8)})
+    with pytest.raises(ValueError, match="points must replace"):
+        renderer.build_update_data(0, points=np.zeros((3, 3)))
+    renderer.add_mesh_actor(Sphere())
+    with pytest.raises(ValueError, match="points must replace"):
+        renderer.build_update_data(1, points=renderer.actors[1]["mesh"].points)
+
+
+def test_generate_update_js() -> None:
+    """Test that the update JavaScript calls pvjsApplyUpdate for this container."""
+    renderer = _colored_quad_renderer()
+    renderer.create_container("my-scene")
+    js = renderer._generate_update_js(renderer.build_update_data(0))
+    assert js == 'window.pvjsApplyUpdate("my-scene", {"actor": 0});\n'
+
+
+def test_plotter_update_actor_requires_html_renderer() -> None:
+    """Test that the mock renderer refuses in-place updates."""
+    plotter = Plotter()
+    plotter._renderer = MockRenderer()
+    with pytest.raises(NotImplementedError, match="MockRenderer"):
+        plotter.update_actor(0)

@@ -180,9 +180,24 @@ if (sceneData.lightingMode === null && sceneData.lights.length === 0) {
   setupLights(sceneData.lights, renderer);
 }
 
-for (const [index, actorConfig] of sceneData.actors.entries()) {
-  setupActor(actorConfig, index, renderer, renderWindow);
-}
+const sceneHandle: SceneHandle = {
+  renderWindow,
+  renderer,
+  actors: sceneData.actors.map((actorConfig, index) =>
+    setupActor(actorConfig, index, renderer, renderWindow),
+  ),
+};
+// biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+window.__pvjs = { ...window.__pvjs, [sceneData.containerId]: sceneHandle };
+// biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+window.pvjsApplyUpdate = (containerId: string, update: ActorUpdate): void => {
+  // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+  const handle = window.__pvjs?.[containerId];
+  if (!handle) {
+    throw new Error(`No pyvista-js scene in container ${containerId}`);
+  }
+  applyActorUpdate(handle, update);
+};
 
 if (sceneData.textActors) {
   for (const textConfig of sceneData.textActors) {
@@ -750,23 +765,22 @@ function applyScalars(mapper: VtkMapper, scalars: ScalarsConfig | undefined): vo
  * @param _index
  * @param ren
  * @param renWin
+ * @returns The actor's vtk.js objects, or undefined if its source could not be built.
  */
 function setupActor(
   cfg: ActorConfig,
   _index: number,
   ren: VtkRenderer,
   renWin: VtkRenderWindow,
-): void {
+): ActorHandle | undefined {
   const sourceResult = createSource(cfg.source);
   if (!sourceResult?.output) {
-    return;
+    return undefined;
   }
 
-  if (cfg.source.pointData ?? cfg.source.tCoords) {
-    const pd = getPolyData(sourceResult);
-    injectPointData(pd, cfg.source.pointData);
-    injectTcoords(pd, cfg.source.tCoords);
-  }
+  const polydata = getPolyData(sourceResult);
+  injectPointData(polydata, cfg.source.pointData);
+  injectTcoords(polydata, cfg.source.tCoords);
 
   let currentResult = sourceResult;
   if (cfg.source.filters && cfg.source.filters.length > 0) {
@@ -789,6 +803,33 @@ function setupActor(
   applyTexture(actor, renWin, cfg.texture);
 
   ren.addActor(actor);
+  return { polydata, mapper, actor };
+}
+
+/**
+ * Replace an actor's points and point-data arrays in place and re-render.
+ *
+ * Changes reach the mapper through the live vtk.js pipeline (e.g. normals),
+ * but not through the filters that `applyFilters` computes once up front.
+ * @param scene
+ * @param update
+ */
+function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): void {
+  const handle = scene.actors[update.actor];
+  if (!handle) {
+    throw new Error(`No actor ${update.actor} in this scene`);
+  }
+  const { polydata, mapper } = handle;
+  if (update.points) {
+    polydata.getPoints().setData(Float32Array.from(update.points), XYZ_COMPONENTS);
+  }
+  for (const array of update.pointData ?? []) {
+    polydata.getPointData().removeArray(array.name);
+  }
+  injectPointData(polydata, update.pointData);
+  applyScalars(mapper, update.scalars);
+  polydata.modified();
+  scene.renderWindow.render();
 }
 
 /**
