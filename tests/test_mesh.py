@@ -1189,6 +1189,13 @@ def test_scene_json_uint8_point_data_unchanged() -> None:
 
 
 @pytest.mark.usefixtures("json_backend")
+def test_scene_json_unserializable_raises() -> None:
+    """Test that objects JSON cannot represent raise a TypeError."""
+    with pytest.raises(TypeError):
+        _dumps_scene({"source": object()})
+
+
+@pytest.mark.usefixtures("json_backend")
 @pytest.mark.parametrize("bad", [np.nan, np.inf, -np.inf])
 def test_scene_json_non_finite_raises(bad: float) -> None:
     """Test that NaN and infinite values are rejected rather than emitted."""

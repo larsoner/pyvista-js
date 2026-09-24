@@ -13,7 +13,7 @@ import numpy as np
 
 try:
     import orjson
-except ImportError:
+except ImportError:  # pragma: no cover
     orjson = None  # type: ignore[assignment]
 
 if TYPE_CHECKING:
