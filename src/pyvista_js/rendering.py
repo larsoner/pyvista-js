@@ -736,13 +736,15 @@ class _BaseHTMLRenderer:
         actor_info = self.actors[actor_index]
         mesh = actor_info["mesh"]
         if points is not None:
+            # built first, as it rejects complex values that the cast would mangle
+            sent_points = _Float32Array(points)
             points = np.asarray(points, dtype=float)
         arrays = {name: np.asarray(array) for name, array in (point_data or {}).items()}
         # validate the whole request, and build what is sent, before changing anything
         _validate_update(mesh, points, arrays, scalars)
         update: dict[str, object] = {"actor": self._actor_id(actor_info)}
         if points is not None:
-            update["points"] = _Float32Array(points)
+            update["points"] = sent_points
         if arrays:
             update["pointData"] = _point_data_to_scene(arrays)
         sent = [update.get("points"), *(a["values"] for a in update.get("pointData", []))]  # type: ignore[attr-defined]

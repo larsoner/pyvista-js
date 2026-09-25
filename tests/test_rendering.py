@@ -674,6 +674,8 @@ _POINTS = np.ones((4, 3))
         ({"point_data": _COLORS, "scalars": "missing"}, "not a point-data"),
         ({"points": _POINTS, "point_data": {"t": [0, 1, np.nan, 3]}}, "NaN"),
         ({"points": np.full((4, 3), np.nan), "point_data": _COLORS}, "NaN"),
+        ({"points": _POINTS * 1j, "point_data": _COLORS}, "complex"),
+        ({"point_data": {**_COLORS, "t": np.ones(4) * 1j}}, "complex"),
     ],
 )
 def test_build_update_data_invalid_changes_nothing(kwargs: dict, match: str) -> None:
@@ -682,7 +684,7 @@ def test_build_update_data_invalid_changes_nothing(kwargs: dict, match: str) -> 
     actor = renderer.actors[0]
     mesh = actor["mesh"]
     points, colors = mesh.points.copy(), mesh.point_data["colors"].copy()
-    with pytest.raises(ValueError, match=match):
+    with pytest.raises((ValueError, TypeError), match=match):
         renderer.build_update_data(0, **kwargs)
     np.testing.assert_array_equal(mesh.points, points)
     np.testing.assert_array_equal(mesh.point_data["colors"], colors)
