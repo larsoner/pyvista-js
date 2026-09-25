@@ -510,7 +510,7 @@ interface ActorHandle {
   actor: VtkActor;
 }
 
-/** The vtk.js objects of one rendered scene, keyed by container ID on `window.__pvjs`. */
+/** The vtk.js objects of one rendered scene, listed by container ID on `window.__pvjs`. */
 interface SceneHandle {
   container: HTMLElement;
   /** Whether the container has been seen in the page, so its removal can be detected. */
@@ -537,7 +537,8 @@ interface Window {
   renderWindow: VtkRenderWindow;
   openGlRenderWindow: VtkOpenGlRenderWindow;
   interactor: VtkInteractor;
-  __pvjs?: Record<string, SceneHandle>;
+  /** The live scenes by container ID; showing a plotter again adds another. */
+  __pvjs?: Record<string, SceneHandle[]>;
   __pvjsObserver?: MutationObserver | undefined;
   pvjsApplyUpdate: (containerId: string, update: ActorUpdate) => void;
 }

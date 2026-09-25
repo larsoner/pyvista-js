@@ -192,19 +192,26 @@ const sceneHandle: SceneHandle = {
 };
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
 const liveScenes = pruneScenes(window.__pvjs ?? {});
-releaseScene(liveScenes[sceneData.containerId]);
-liveScenes[sceneData.containerId] = sceneHandle;
+// showing a plotter again reuses its container ID, and the earlier outputs stay live
+liveScenes[sceneData.containerId] = [...(liveScenes[sceneData.containerId] ?? []), sceneHandle];
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
 window.__pvjs = liveScenes;
 watchScenes();
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
 window.pvjsApplyUpdate = (containerId: string, update: ActorUpdate): void => {
   // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
-  const handle = pruneScenes(window.__pvjs ?? {})[containerId];
-  if (!handle) {
+  const scenes = pruneScenes(window.__pvjs ?? {})[containerId];
+  if (!scenes) {
     throw new Error(`No pyvista-js scene in container ${containerId}`);
   }
-  applyActorUpdate(handle, update);
+  // an output shown before the actor was added does not have it
+  const withActor = scenes.filter((scene) => scene.actors[update.actor]);
+  if (withActor.length === 0) {
+    throw new Error(`No actor ${update.actor} in container ${containerId}`);
+  }
+  for (const scene of withActor) {
+    applyActorUpdate(scene, update);
+  }
 };
 
 if (sceneData.textActors) {
@@ -818,26 +825,35 @@ function setupActor(
  * Stop a scene's interactor listening for events, so the scene can be freed.
  * @param scene
  */
-function releaseScene(scene: SceneHandle | undefined): void {
-  scene?.interactor.unbindEvents();
+function releaseScene(scene: SceneHandle): void {
+  scene.interactor.unbindEvents();
 }
 
 /**
  * Release and forget the scenes whose containers have left the page.
  *
  * Notebook outputs are removed without notice, so this runs whenever the page
- * changes and whenever a scene is added or updated. A container that has not been in the page yet (e.g. a
- * JupyterLab output that is not attached yet) is kept.
+ * changes and whenever a scene is added or updated. A container that has not
+ * been in the page yet (e.g. a JupyterLab output that is not attached yet) is
+ * kept.
  * @param scenes
  * @returns `scenes`, without the removed scenes.
  */
-function pruneScenes(scenes: Record<string, SceneHandle>): Record<string, SceneHandle> {
-  for (const [containerId, scene] of Object.entries(scenes)) {
-    if (scene.container.isConnected) {
-      scene.wasConnected = true;
-    } else if (scene.wasConnected) {
-      releaseScene(scene);
+function pruneScenes(scenes: Record<string, SceneHandle[]>): Record<string, SceneHandle[]> {
+  for (const [containerId, handles] of Object.entries(scenes)) {
+    const kept = handles.filter((scene) => {
+      if (scene.container.isConnected) {
+        scene.wasConnected = true;
+      } else if (scene.wasConnected) {
+        releaseScene(scene);
+        return false;
+      }
+      return true;
+    });
+    if (kept.length === 0) {
       delete scenes[containerId];
+    } else {
+      scenes[containerId] = kept;
     }
   }
   return scenes;
@@ -872,13 +888,14 @@ function watchScenes(): void {
  *
  * Changes reach the mapper through the live vtk.js pipeline (e.g. normals),
  * but not through the filters that `applyFilters` computes once up front.
+ * Does nothing if the scene has no such actor.
  * @param scene
  * @param update
  */
 function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): void {
   const handle = scene.actors[update.actor];
   if (!handle) {
-    throw new Error(`No actor ${update.actor} in this scene`);
+    return;
   }
   const { polydata, mapper } = handle;
   if (update.points) {

@@ -605,7 +605,10 @@ def test_update_actor_colors_in_place(page: Page, plain: bool) -> None:  # noqa:
     page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
     _load_plotter_html(page, plotter)
     container_id = plotter.container_id
-    page.evaluate("id => { window.__firstWindow = window.__pvjs[id].renderWindow; }", container_id)
+    page.evaluate(
+        "id => { window.__firstWindow = window.__pvjs[id][0].renderWindow; }",
+        container_id,
+    )
     before = page.locator("canvas").screenshot()
 
     update = plotter.update_actor(0, point_data={"colors": red[:, ::-1].copy()}, send=False)
@@ -620,7 +623,7 @@ def test_update_actor_colors_in_place(page: Page, plain: bool) -> None:  # noqa:
     assert page.locator("canvas").count() == 1
     assert page.evaluate(
         "id => Object.keys(window.__pvjs).length === 1"
-        " && window.__pvjs[id].renderWindow === window.__firstWindow",
+        " && window.__pvjs[id][0].renderWindow === window.__firstWindow",
         container_id,
     )
     assert js_errors == []
@@ -657,7 +660,10 @@ def test_update_actor_points_in_place(page: Page) -> None:
     page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
     _load_plotter_html(page, plotter)
     container_id = plotter.container_id
-    page.evaluate("id => { window.__firstWindow = window.__pvjs[id].renderWindow; }", container_id)
+    page.evaluate(
+        "id => { window.__firstWindow = window.__pvjs[id][0].renderWindow; }",
+        container_id,
+    )
     before = page.locator("canvas").screenshot()
 
     points = plotter._renderer.actors[0]["mesh"].points * 0.25  # type: ignore[attr-defined]
@@ -671,12 +677,12 @@ def test_update_actor_points_in_place(page: Page) -> None:
 
     assert after != before, "Canvas did not change after moving the points"
     got = page.evaluate(
-        "id => Array.from(window.__pvjs[id].actors[0].polydata.getPoints().getData())",
+        "id => Array.from(window.__pvjs[id][0].actors[0].polydata.getPoints().getData())",
         container_id,
     )
     assert got == points.ravel().tolist()
     assert page.evaluate(
-        "id => window.__pvjs[id].renderWindow === window.__firstWindow",
+        "id => window.__pvjs[id][0].renderWindow === window.__firstWindow",
         container_id,
     )
     assert js_errors == []
@@ -719,3 +725,62 @@ def test_removed_scene_is_released(page: Page) -> None:
         container_id,
     )
     assert error == f"No pyvista-js scene in container {container_id}"
+
+
+@pytest.mark.playwright
+def test_show_twice_keeps_both_outputs_live(page: Page) -> None:
+    """Test that showing a plotter again, reusing its container ID, keeps the first output.
+
+    Both outputs stay interactive, and an update reaches both.
+
+    Parameters
+    ----------
+    page : Page
+        Playwright page fixture for browser automation.
+
+    """
+    from pyvista_js.rendering import scene_to_json  # noqa: PLC0415
+
+    plotter = _plain_quad_plotter()
+    js_errors: list[str] = []
+    page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
+    _load_plotter_html(page, plotter)
+    container_id = plotter.container_id
+    page.evaluate(
+        "id => { window.__firstWindow = window.__pvjs[id][0].renderWindow; }",
+        container_id,
+    )
+    # render the scene again, as a second notebook output with the same container ID
+    page.evaluate(plotter._renderer._generate_render_js())  # type: ignore[attr-defined]
+    page.wait_for_timeout(500)
+    assert page.locator("canvas").count() == 2
+    assert page.evaluate(
+        "id => window.__pvjs[id].length === 2"
+        " && window.__pvjs[id][0].renderWindow === window.__firstWindow",
+        container_id,
+    )
+
+    points = plotter._renderer.actors[0]["mesh"].points * 0.25  # type: ignore[attr-defined]
+    update = plotter.update_actor(0, points=points, send=False)
+    page.evaluate(
+        "([id, update]) => window.pvjsApplyUpdate(id, update)",
+        [container_id, json.loads(scene_to_json(update))],
+    )
+    got = page.evaluate(
+        "id => window.__pvjs[id].map("
+        "scene => Array.from(scene.actors[0].polydata.getPoints().getData()))",
+        container_id,
+    )
+    assert got == [points.ravel().tolist()] * 2
+
+    # removing the first output frees it and leaves the second one
+    remaining = page.evaluate(
+        """async id => {
+            window.__pvjs[id][0].container.remove();
+            await new Promise(resolve => setTimeout(resolve));
+            return window.__pvjs[id].length;
+        }""",
+        container_id,
+    )
+    assert remaining == 1
+    assert js_errors == []
