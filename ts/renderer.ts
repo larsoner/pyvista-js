@@ -917,6 +917,10 @@ function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): boolean {
   injectPointData(polydata, update.pointData);
   applyScalars(mapper, update.scalars);
   polydata.modified();
+  if (update.points) {
+    // keep moved geometry from falling outside the near and far planes
+    scene.renderer.resetCameraClippingRange();
+  }
   scene.renderWindow.render();
   return true;
 }

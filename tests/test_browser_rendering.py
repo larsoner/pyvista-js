@@ -667,11 +667,21 @@ def test_update_points_in_every_output(page: Page) -> None:
     _show_again(page, plotter)
     assert page.locator("canvas").count() == 2
 
-    points = plotter._renderer.actors[0]["mesh"].points * 0.25  # type: ignore[attr-defined]
+    # shrink the quad and move it toward the camera, past the original near plane
+    points = plotter._renderer.actors[0]["mesh"].points * 0.25 + [0, 0, 3]  # type: ignore[attr-defined]
     _apply_update(page, plotter, plotter.update_actor(0, points=points, send=False))
     page.wait_for_timeout(500)
 
     assert _output_points(page, plotter) == [points.ravel().tolist()] * 2
+    near, far = page.evaluate(
+        "id => window.__pvjs[id][0].renderer.getActiveCamera().getClippingRange()",
+        plotter.container_id,
+    )
+    camera_z = page.evaluate(
+        "id => window.__pvjs[id][0].renderer.getActiveCamera().getPosition()[2]",
+        plotter.container_id,
+    )
+    assert near < camera_z - 3 < far
     assert page.locator("canvas").first.screenshot() != before, "Canvas did not change"
     # the first output was updated in place, not rebuilt
     assert page.evaluate(

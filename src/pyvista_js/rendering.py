@@ -718,6 +718,8 @@ class _BaseHTMLRenderer:
         ------
         IndexError
             If there is no actor ``actor_index``.
+        TypeError
+            If an array has complex values. Nothing is changed when this is raised.
         ValueError
             If an array does not have one row per point or has NaN or
             infinite values, ``points`` is given for a mesh that is not

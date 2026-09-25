@@ -1194,6 +1194,10 @@ def test_scene_json_unserializable_raises() -> None:
     """Test that objects JSON cannot represent raise a TypeError."""
     with pytest.raises(TypeError):
         _dumps_scene({"source": object()})
+    mesh = PolyData(np.zeros((2, 3)))
+    mesh.point_data["z"] = np.array([1 + 2j, 3j])
+    with pytest.raises(TypeError, match="complex"):
+        mesh.to_scene_data()
 
 
 @pytest.mark.usefixtures("json_backend")

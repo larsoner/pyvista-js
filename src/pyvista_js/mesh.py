@@ -232,7 +232,12 @@ class _Float32Array:
     __slots__ = ("array",)
 
     def __init__(self, array: ArrayLike) -> None:
-        self.array = np.array(array, dtype=np.float32).ravel()
+        array = np.asarray(array)
+        if np.iscomplexobj(array):
+            # casting would silently drop the imaginary parts
+            msg = "Cannot serialize complex values to scene JSON"
+            raise TypeError(msg)
+        self.array = array.astype(np.float32).ravel()
 
     def __len__(self) -> int:
         return self.array.size
