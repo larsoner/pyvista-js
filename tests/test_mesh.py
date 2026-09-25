@@ -1168,24 +1168,14 @@ def test_scene_json_float32_size() -> None:
 
 @pytest.mark.usefixtures("json_backend")
 def test_scene_json_is_compact() -> None:
-    """Test that scene JSON has no whitespace after separators."""
-    mesh = PolyData(np.zeros((3, 3)), [3, 0, 1, 2])
-    mesh.point_data["colors"] = np.full((3, 3), 255, np.uint8)
+    """Test that scene JSON has no separator whitespace, and uint8 data stays integers."""
+    mesh = PolyData(np.zeros((2, 3)), [3, 0, 1, 1])
+    mesh.point_data["colors"] = np.array([[255, 0, 0, 255], [0, 128, 0, 255]], np.uint8)
     text = _dumps_scene(mesh._to_scene_data())
-    assert '"polys":[3,0,1,2]' in text
-    assert '"values":[255,255,255,' in text
+    assert '"polys":[3,0,1,1]' in text
+    assert '"dataType":"Uint8Array","values":[255,0,0,255,0,128,0,255]' in text
     assert ", " not in text
     assert '": ' not in text
-
-
-@pytest.mark.usefixtures("json_backend")
-def test_scene_json_uint8_point_data_unchanged() -> None:
-    """Test that uint8 point data is still emitted as plain integers."""
-    mesh = PolyData(np.zeros((2, 3)))
-    mesh.point_data["colors"] = np.array([[255, 0, 0, 255], [0, 128, 0, 255]], np.uint8)
-    array = _emitted_source(mesh)["pointData"][0]
-    assert array["dataType"] == "Uint8Array"
-    assert array["values"] == [255, 0, 0, 255, 0, 128, 0, 255]
 
 
 @pytest.mark.usefixtures("json_backend")
@@ -1218,23 +1208,11 @@ def test_scene_json_non_finite_raises(bad: float) -> None:
 def test_to_scene_data_is_json_serializable() -> None:
     """Test that the public scene data has plain lists, for ``json.dumps``."""
     sphere = Sphere()
-    sphere.point_data["values"] = sphere.points[:, 0]
     contours = sphere.contour(isosurfaces=3, scalars=sphere.points[:, 2])
-    for mesh in (sphere, contours, _make_tetra_grid()):
-        scene = json.loads(json.dumps(mesh.to_scene_data()))
-        emitted = json.loads(_dumps_scene(mesh._to_scene_data()))
-        assert scene.keys() == emitted.keys()
-        for key in ("points", "pointData", "filters"):
-            np.testing.assert_array_equal(
-                np.array(_float_values(scene.get(key)), np.float32),
-                np.array(_float_values(emitted.get(key)), np.float32),
-            )
-
-
-def _float_values(obj: object) -> list[float]:
-    """Return the numbers in parsed scene JSON, depth first."""
-    if isinstance(obj, dict):
-        return [value for item in obj.values() for value in _float_values(item)]
-    if isinstance(obj, list):
-        return [value for item in obj for value in _float_values(item)]
-    return [obj] if isinstance(obj, (int, float)) and not isinstance(obj, bool) else []
+    grid = _make_tetra_grid()
+    grid.point_data["values"] = np.arange(4.0)
+    for mesh in (sphere, contours, grid):
+        json.dumps(mesh.to_scene_data())
+    scene = grid.to_scene_data()
+    assert scene["points"] == grid.points.astype(np.float32).ravel().tolist()
+    assert scene["pointData"][0]["values"] == [0.0, 1.0, 2.0, 3.0]

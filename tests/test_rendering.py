@@ -601,18 +601,6 @@ def test_build_update_data_updates_mesh_and_scene() -> None:
     }
 
 
-def test_build_update_data_rejects_wrong_sizes() -> None:
-    """Test that updates cannot change the number of points."""
-    renderer = _colored_quad_renderer()
-    with pytest.raises(ValueError, match="3 rows, expected 4"):
-        renderer.build_update_data(0, point_data={"colors": np.zeros((3, 3), np.uint8)})
-    with pytest.raises(ValueError, match="points must replace"):
-        renderer.build_update_data(0, points=np.zeros((3, 3)))
-    renderer.add_mesh_actor(Sphere())
-    with pytest.raises(ValueError, match="points must replace"):
-        renderer.build_update_data(1, points=renderer.actors[1]["mesh"].points)
-
-
 def test_generate_update_js() -> None:
     """Test that the update JavaScript calls pvjsApplyUpdate for this container."""
     renderer = _colored_quad_renderer()
@@ -654,39 +642,46 @@ def test_plotter_update_actor_send(monkeypatch) -> None:
     assert shown[0].startswith(f'window.pvjsApplyUpdate("{plotter.container_id}",')
 
 
-def test_build_update_data_negative_index() -> None:
-    """Test that a negative actor index updates the actor it counts back to."""
+def test_build_update_data_actor_ids() -> None:
+    """Test that updates find actors by index, and send IDs that survive clear()."""
     renderer = _colored_quad_renderer()
     renderer.add_mesh_actor(Sphere())
-    assert renderer.build_update_data(-2)["actor"] == renderer.actors[0]["id"]
+    scene_id = renderer._build_scene_data()["actors"][0]["id"]  # type: ignore[index]
+    assert renderer.build_update_data(0)["actor"] == scene_id
+    assert renderer.build_update_data(-2)["actor"] == scene_id
     with pytest.raises(IndexError):
         renderer.build_update_data(-3)
+    # a mesh given by a source, not its points, cannot have its points replaced
+    with pytest.raises(ValueError, match="points must replace"):
+        renderer.build_update_data(1, points=renderer.actors[1]["mesh"].points)
+    renderer.clear()
+    renderer.add_mesh_actor(Sphere())
+    assert renderer.build_update_data(0)["actor"] != scene_id
+
+
+_COLORS = {"colors": np.ones((4, 3), np.uint8)}
+_POINTS = np.ones((4, 3))
 
 
 @pytest.mark.parametrize(
-    "kwargs",
+    ("kwargs", "match"),
     [
-        {"points": "shift", "point_data": {"bad": np.zeros(3)}},
-        {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.zeros(3)}},
-        {"point_data": {"colors": np.ones((4, 3), np.uint8)}, "scalars": "missing"},
-        {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.zeros((4, 2, 2))}},
-        {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.array(1.0)}},
-        {"points": "shift", "point_data": {"t": [0.0, 1.0, np.nan, 3.0]}},
-        {"points": "nan", "point_data": {"colors": np.ones((4, 3), np.uint8)}},
+        ({"points": np.zeros((3, 3))}, "points must replace"),
+        ({"points": _POINTS, "point_data": {"t": np.zeros(3)}}, "3 rows"),
+        ({"point_data": {**_COLORS, "t": np.zeros((4, 2, 2))}}, "1- or 2-dim"),
+        ({"point_data": {**_COLORS, "t": np.array(1.0)}}, "1- or 2-dim"),
+        ({"point_data": _COLORS, "scalars": "missing"}, "not a point-data"),
+        ({"points": _POINTS, "point_data": {"t": [0, 1, np.nan, 3]}}, "NaN"),
+        ({"points": np.full((4, 3), np.nan), "point_data": _COLORS}, "NaN"),
     ],
 )
-def test_build_update_data_invalid_changes_nothing(kwargs: dict) -> None:
+def test_build_update_data_invalid_changes_nothing(kwargs: dict, match: str) -> None:
     """Test that a rejected update leaves the mesh and actor as they were."""
     renderer = _colored_quad_renderer()
     actor = renderer.actors[0]
     mesh = actor["mesh"]
-    if kwargs.get("points") == "shift":
-        kwargs["points"] = mesh.points + 1
-    elif kwargs.get("points") == "nan":
-        kwargs["points"] = np.where(np.eye(4, 3, dtype=bool), np.nan, mesh.points)
-    points = mesh.points.copy()
-    colors = mesh.point_data["colors"].copy()
-    with pytest.raises(ValueError, match=r"bad|missing|NaN"):
+    points, colors = mesh.points.copy(), mesh.point_data["colors"].copy()
+    with pytest.raises(ValueError, match=match):
         renderer.build_update_data(0, **kwargs)
     np.testing.assert_array_equal(mesh.points, points)
     np.testing.assert_array_equal(mesh.point_data["colors"], colors)
@@ -694,12 +689,14 @@ def test_build_update_data_invalid_changes_nothing(kwargs: dict) -> None:
     assert actor["scalars"] == "colors"
 
 
-def test_actor_ids_are_stable_and_not_reused() -> None:
-    """Test that actor IDs match between scene and updates, and survive clear()."""
-    renderer = _colored_quad_renderer()
-    scene_id = renderer._build_scene_data()["actors"][0]["id"]  # type: ignore[index]
-    assert renderer.build_update_data(0)["actor"] == scene_id
-    assert renderer._build_scene_data()["actors"][0]["id"] == scene_id  # type: ignore[index]
-    renderer.clear()
-    renderer.add_mesh_actor(Sphere())
-    assert renderer.build_update_data(0)["actor"] != scene_id
+def test_to_scene_data_override_is_rendered() -> None:
+    """Test that a mesh subclass overriding the public to_scene_data is still rendered with it."""
+
+    class _CustomMesh(PolyData):
+        def to_scene_data(self) -> dict[str, object]:
+            return {"type": "sphere", "radius": 2.0}
+
+    renderer = BrowserRenderer()
+    renderer.add_mesh_actor(_CustomMesh(np.zeros((1, 3))))
+    source = json.loads(scene_to_json(renderer._build_scene_data()))["actors"][0]["source"]
+    assert source == {"type": "sphere", "radius": 2.0}

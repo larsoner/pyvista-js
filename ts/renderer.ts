@@ -205,12 +205,9 @@ window.pvjsApplyUpdate = (containerId: string, update: ActorUpdate): void => {
     throw new Error(`No pyvista-js scene in container ${containerId}`);
   }
   // an output shown before the actor was added, or before a clear(), does not have it
-  const withActor = scenes.filter((scene) => findActor(scene, update.actor));
-  if (withActor.length === 0) {
+  const updated = scenes.filter((scene) => applyActorUpdate(scene, update));
+  if (updated.length === 0) {
     throw new Error(`No actor ${update.actor} in container ${containerId}`);
-  }
-  for (const scene of withActor) {
-    applyActorUpdate(scene, update);
   }
 };
 
@@ -842,16 +839,6 @@ function releaseScene(scene: SceneHandle): void {
 }
 
 /**
- * Find a scene's actor by its ID.
- * @param scene
- * @param actorId
- * @returns The actor's vtk.js objects, or undefined if the scene does not have it.
- */
-function findActor(scene: SceneHandle, actorId: string): ActorHandle | undefined {
-  return scene.actors.find((handle) => handle?.id === actorId);
-}
-
-/**
  * Release and forget the scenes whose containers have left the page.
  *
  * Notebook outputs are removed without notice, so this runs whenever the page
@@ -910,14 +897,14 @@ function watchScenes(): void {
  *
  * Changes reach the mapper through the live vtk.js pipeline (e.g. normals),
  * but not through the filters that `applyFilters` computes once up front.
- * Does nothing if the scene has no such actor.
  * @param scene
  * @param update
+ * @returns Whether the scene has the actor; if not, nothing is done.
  */
-function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): void {
-  const handle = findActor(scene, update.actor);
+function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): boolean {
+  const handle = scene.actors.find((actorHandle) => actorHandle?.id === update.actor);
   if (!handle) {
-    return;
+    return false;
   }
   const { polydata, mapper } = handle;
   if (update.points) {
@@ -930,6 +917,7 @@ function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): void {
   applyScalars(mapper, update.scalars);
   polydata.modified();
   scene.renderWindow.render();
+  return true;
 }
 
 /**

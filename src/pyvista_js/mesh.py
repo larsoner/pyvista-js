@@ -1640,6 +1640,32 @@ class UnstructuredGrid:
         return data
 
 
+def _scene_source(mesh: object) -> dict[str, object]:
+    """Return a mesh's scene source, for serializing with ``_dumps_scene``.
+
+    Meshes that use the built-in ``to_scene_data`` give the compact form with
+    ``_Float32Array`` values. A mesh whose class overrides the public
+    ``to_scene_data`` gets that override, as before the compact form existed.
+
+    Parameters
+    ----------
+    mesh : object
+        The mesh.
+
+    Returns
+    -------
+    dict
+        The source configuration.
+
+    """
+    if getattr(type(mesh), "to_scene_data", None) in _COMPACT_TO_SCENE_DATA:
+        return mesh._to_scene_data()  # type: ignore[attr-defined, no-any-return]  # noqa: SLF001
+    return mesh.to_scene_data()  # type: ignore[attr-defined, no-any-return]
+
+
+_COMPACT_TO_SCENE_DATA = (PolyData.to_scene_data, UnstructuredGrid.to_scene_data)
+
+
 def Sphere(  # noqa: N802
     radius: float = 1.0,
     center: tuple[float, float, float] = (0.0, 0.0, 0.0),

@@ -96,7 +96,7 @@ if TYPE_CHECKING:
 from jinja2 import Environment, StrictUndefined
 
 from .examples import CubeMap
-from .mesh import _dumps_scene
+from .mesh import _dumps_scene, _scene_source
 
 
 def scene_to_json(data: object) -> str:
@@ -743,11 +743,10 @@ class _BaseHTMLRenderer:
             update["points"] = _Float32Array(points)
         if arrays:
             update["pointData"] = _point_data_to_scene(arrays)
-        payloads = [update.get("points")]
-        payloads += [entry["values"] for entry in update.get("pointData", [])]  # type: ignore[attr-defined]
-        for payload in payloads:
-            if isinstance(payload, _Float32Array):
-                payload.finite()
+        sent = [update.get("points"), *(a["values"] for a in update.get("pointData", []))]  # type: ignore[attr-defined]
+        for values in sent:
+            if isinstance(values, _Float32Array):
+                values.finite()
 
         if points is not None:
             mesh.points = points  # type: ignore[attr-defined]
@@ -767,7 +766,7 @@ class _BaseHTMLRenderer:
         smooth_shading = bool(actor_info.get("smooth_shading", True))
         style = str(actor_info.get("style", "surface"))
 
-        source_data = mesh._to_scene_data()  # type: ignore[attr-defined]  # noqa: SLF001
+        source_data = _scene_source(mesh)
 
         # Normals configuration
         normals_data = None
