@@ -9,12 +9,14 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from .rendering import get_renderer
+from .rendering import IPYTHON_AVAILABLE, _BaseHTMLRenderer, get_renderer
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import numpy as np
+    from numpy.typing import ArrayLike
 
     from .camera import Camera
     from .examples import CubeMap
@@ -417,6 +419,90 @@ class Plotter:
 
         """
         return self._renderer.generate_standalone_html()
+
+    @property
+    def container_id(self) -> str:
+        """Return the ID of the HTML element that the scene renders into.
+
+        Pass it to ``window.pvjsApplyUpdate`` along with a message from
+        :meth:`update_actor` to update the rendered page in place.
+
+        Examples
+        --------
+        >>> import pyvista_js as pv
+        >>> plotter = pv.Plotter()
+        >>> _ = plotter.add_mesh(pv.Sphere())
+        >>> f'id="{plotter.container_id}"' in plotter.generate_standalone_html()
+        True
+
+        """
+        return str(getattr(self._renderer, "container_id", self._container_id))
+
+    def update_actor(
+        self,
+        actor_index: int,
+        *,
+        points: ArrayLike | None = None,
+        point_data: Mapping[str, ArrayLike] | None = None,
+        scalars: str | None = None,
+        send: bool = True,
+    ) -> dict[str, object]:
+        """Update an actor's data in place, without re-rendering the whole scene.
+
+        In a notebook, the update is sent to the scene shown by :meth:`show`.
+        To apply it some other way, such as in a page you embedded yourself,
+        pass ``send=False`` and hand the returned message, serialized with
+        :func:`pyvista_js.rendering.scene_to_json`, to
+        ``window.pvjsApplyUpdate(plotter.container_id, message)`` in the page.
+
+        Parameters
+        ----------
+        actor_index : int
+            Index of the actor, in the order it was added.
+        points : array-like, optional
+            New ``(n_points, 3)`` coordinates. The number of points cannot change.
+        point_data : mapping, optional
+            Point-data arrays to add or replace, by name.
+        scalars : str, optional
+            Name of the point-data array to color by.
+        send : bool, default=True
+            Whether to send the update to the scene shown by :meth:`show` in a
+            notebook. The mesh is updated either way.
+
+        Returns
+        -------
+        dict
+            The update message.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> import pyvista_js as pv
+        >>> plotter = pv.Plotter()
+        >>> sphere = pv.Sphere()
+        >>> sphere.point_data["colors"] = np.zeros((sphere.n_points, 3), np.uint8)
+        >>> _ = plotter.add_mesh(sphere, scalars="colors")
+        >>> red = np.tile(np.array([255, 0, 0], np.uint8), (sphere.n_points, 1))
+        >>> update = plotter.update_actor(0, point_data={"colors": red}, send=False)
+        >>> update["pointData"][0]["name"]
+        'colors'
+
+        """
+        renderer = self._renderer
+        if not isinstance(renderer, _BaseHTMLRenderer):
+            msg = f"{type(renderer).__name__} does not support in-place updates"
+            raise NotImplementedError(msg)
+        update = renderer.build_update_data(
+            actor_index,
+            points=points,
+            point_data=point_data,
+            scalars=scalars,
+        )
+        if send and IPYTHON_AVAILABLE and getattr(renderer, "use_ipython", False):
+            from IPython.display import Javascript, display  # noqa: PLC0415
+
+            display(Javascript(renderer._generate_update_js(update)))  # noqa: SLF001
+        return update
 
     def view_vector(
         self,
