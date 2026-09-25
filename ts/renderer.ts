@@ -383,7 +383,7 @@ function createCubeSource(cfg: SourceConfig): SourceResult {
     yLength: cfg.yLength,
     zLength: cfg.zLength,
   });
-  return { output: source, isFilter: false };
+  return { output: source, isFilter: true };
 }
 
 /**

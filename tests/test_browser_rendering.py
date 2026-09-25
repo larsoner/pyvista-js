@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from pyvista_js import Line, Plotter, PolyData, Sphere, Text
+from pyvista_js import Cube, Line, Plotter, PolyData, Sphere, Text
 from pyvista_js.examples import download_bunny, download_trumpet
 from pyvista_js.readers import OBJReader, PLYReader, PolyDataReader, STLReader
 from pyvista_js.rendering import BrowserRenderer, scene_to_json
@@ -609,22 +609,22 @@ def _show_again(page: Page, plotter: Plotter) -> None:
 
 
 @pytest.mark.playwright
-@pytest.mark.parametrize("plain", [False, True])
-def test_update_actor_colors_in_place(page: Page, plain: bool) -> None:  # noqa: FBT001
+@pytest.mark.parametrize("kind", ["plain", "sphere", "cube"])
+def test_update_actor_colors_in_place(page: Page, kind: str) -> None:
     """Test that pvjsApplyUpdate recolors a mesh without rebuilding the scene.
 
     Parameters
     ----------
     page : Page
         Playwright page fixture for browser automation.
-    plain : bool
-        Whether to use a mesh given by points and faces rather than a sphere source.
+    kind : str
+        Whether to use a mesh given by points and faces, or a sphere or cube source.
 
     """
-    plotter = _plain_quad_plotter() if plain else Plotter()
-    if not plain:
+    plotter = _plain_quad_plotter() if kind == "plain" else Plotter()
+    if kind != "plain":
         plotter._renderer = BrowserRenderer()
-        plotter.add_mesh(Sphere())
+        plotter.add_mesh(Sphere() if kind == "sphere" else Cube())
     mesh = plotter._renderer.actors[0]["mesh"]  # type: ignore[attr-defined]
     red = np.tile(np.array([255, 0, 0], np.uint8), (mesh.n_points, 1))
     plotter.update_actor(0, point_data={"colors": red}, scalars="colors", send=False)
