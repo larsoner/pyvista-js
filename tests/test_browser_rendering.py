@@ -624,3 +624,90 @@ def test_update_actor_colors_in_place(page: Page, plain: bool) -> None:  # noqa:
         container_id,
     )
     assert js_errors == []
+
+
+def _plain_quad_plotter() -> Plotter:
+    """Return a plotter showing a plain quad mesh given by its points and faces."""
+    import numpy as np  # noqa: PLC0415
+
+    from pyvista_js import PolyData  # noqa: PLC0415
+    from pyvista_js.rendering import BrowserRenderer  # noqa: PLC0415
+
+    points = [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]]
+    plotter = Plotter()
+    plotter._renderer = BrowserRenderer()
+    plotter.add_mesh(PolyData(np.array(points, float), [3, 0, 1, 2, 3, 0, 2, 3]))
+    return plotter
+
+
+@pytest.mark.playwright
+def test_update_actor_points_in_place(page: Page) -> None:
+    """Test that pvjsApplyUpdate moves a mesh's points in the existing render window.
+
+    Parameters
+    ----------
+    page : Page
+        Playwright page fixture for browser automation.
+
+    """
+    from pyvista_js.rendering import scene_to_json  # noqa: PLC0415
+
+    plotter = _plain_quad_plotter()
+    js_errors: list[str] = []
+    page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
+    _load_plotter_html(page, plotter)
+    container_id = plotter.container_id
+    page.evaluate("id => { window.__firstWindow = window.__pvjs[id].renderWindow; }", container_id)
+    before = page.locator("canvas").screenshot()
+
+    points = plotter._renderer.actors[0]["mesh"].points * 0.25  # type: ignore[attr-defined]
+    update = plotter.update_actor(0, points=points, send=False)
+    page.evaluate(
+        "([id, update]) => window.pvjsApplyUpdate(id, update)",
+        [container_id, json.loads(scene_to_json(update))],
+    )
+    page.wait_for_timeout(500)
+    after = page.locator("canvas").screenshot()
+
+    assert after != before, "Canvas did not change after moving the points"
+    got = page.evaluate(
+        "id => Array.from(window.__pvjs[id].actors[0].polydata.getPoints().getData())",
+        container_id,
+    )
+    assert got == points.ravel().tolist()
+    assert page.evaluate(
+        "id => window.__pvjs[id].renderWindow === window.__firstWindow",
+        container_id,
+    )
+    assert js_errors == []
+
+
+@pytest.mark.playwright
+def test_removed_scene_is_released(page: Page) -> None:
+    """Test that a scene is forgotten once its container leaves the page.
+
+    Parameters
+    ----------
+    page : Page
+        Playwright page fixture for browser automation.
+
+    """
+    plotter = _plain_quad_plotter()
+    _load_plotter_html(page, plotter)
+    container_id = plotter.container_id
+    assert page.evaluate("id => id in window.__pvjs", container_id)
+
+    page.evaluate("id => document.getElementById(id).remove()", container_id)
+    error = page.evaluate(
+        """id => {
+            try {
+                window.pvjsApplyUpdate(id, {actor: 0});
+            } catch (err) {
+                return err.message;
+            }
+            return null;
+        }""",
+        container_id,
+    )
+    assert error == f"No pyvista-js scene in container {container_id}"
+    assert page.evaluate("() => Object.keys(window.__pvjs).length") == 0

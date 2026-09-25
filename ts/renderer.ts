@@ -181,6 +181,9 @@ if (sceneData.lightingMode === null && sceneData.lights.length === 0) {
 }
 
 const sceneHandle: SceneHandle = {
+  container,
+  wasConnected: container.isConnected,
+  interactor,
   renderWindow,
   renderer,
   actors: sceneData.actors.map((actorConfig, index) =>
@@ -188,11 +191,15 @@ const sceneHandle: SceneHandle = {
   ),
 };
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
-window.__pvjs = { ...window.__pvjs, [sceneData.containerId]: sceneHandle };
+const liveScenes = pruneScenes(window.__pvjs ?? {});
+releaseScene(liveScenes[sceneData.containerId]);
+liveScenes[sceneData.containerId] = sceneHandle;
+// biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+window.__pvjs = liveScenes;
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
 window.pvjsApplyUpdate = (containerId: string, update: ActorUpdate): void => {
   // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
-  const handle = window.__pvjs?.[containerId];
+  const handle = pruneScenes(window.__pvjs ?? {})[containerId];
   if (!handle) {
     throw new Error(`No pyvista-js scene in container ${containerId}`);
   }
@@ -804,6 +811,35 @@ function setupActor(
 
   ren.addActor(actor);
   return { polydata, mapper, actor };
+}
+
+/**
+ * Stop a scene's interactor listening for events, so the scene can be freed.
+ * @param scene
+ */
+function releaseScene(scene: SceneHandle | undefined): void {
+  scene?.interactor.unbindEvents();
+}
+
+/**
+ * Release and forget the scenes whose containers have left the page.
+ *
+ * Notebook outputs are removed without notice, so this runs whenever a scene
+ * is added or updated. A container that has not been in the page yet (e.g. a
+ * JupyterLab output that is not attached yet) is kept.
+ * @param scenes
+ * @returns `scenes`, without the removed scenes.
+ */
+function pruneScenes(scenes: Record<string, SceneHandle>): Record<string, SceneHandle> {
+  for (const [containerId, scene] of Object.entries(scenes)) {
+    if (scene.container.isConnected) {
+      scene.wasConnected = true;
+    } else if (scene.wasConnected) {
+      releaseScene(scene);
+      delete scenes[containerId];
+    }
+  }
+  return scenes;
 }
 
 /**

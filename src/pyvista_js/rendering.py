@@ -231,6 +231,27 @@ def _color_name_to_rgb(color_name: str) -> tuple[float, float, float]:
     return colors.get(color_name.lower(), (0.5, 0.5, 0.5))
 
 
+def _validate_update(
+    mesh: object,
+    points: np.ndarray | None,
+    arrays: dict[str, np.ndarray],
+    scalars: str | None,
+) -> None:
+    """Check that an actor update fits its mesh, raising ``ValueError`` if not."""
+    if points is not None and (
+        mesh._scene_data is not None or points.shape != mesh.points.shape  # type: ignore[attr-defined]  # noqa: SLF001
+    ):
+        msg = f"points must replace the {mesh.points.shape} points of a plain mesh"  # type: ignore[attr-defined]
+        raise ValueError(msg)
+    for name, array in arrays.items():
+        if len(array) != mesh.n_points:  # type: ignore[attr-defined]
+            msg = f"point_data[{name!r}] has {len(array)} rows, expected {mesh.n_points}"  # type: ignore[attr-defined]
+            raise ValueError(msg)
+    if scalars is not None and scalars not in arrays and scalars not in mesh.point_data:  # type: ignore[attr-defined]
+        msg = f"scalars {scalars!r} is not a point-data array of the mesh"
+        raise ValueError(msg)
+
+
 class _BaseHTMLRenderer:
     """Base class providing shared state and HTML generation for vtk.js renderers.
 
@@ -682,38 +703,41 @@ class _BaseHTMLRenderer:
 
         Raises
         ------
+        IndexError
+            If there is no actor ``actor_index``.
         ValueError
-            If an array does not have one row per point, or ``points`` is given
-            for a mesh that is not defined by its points.
+            If an array does not have one row per point, ``points`` is given
+            for a mesh that is not defined by its points, or ``scalars`` names
+            no point-data array. Nothing is changed when this is raised.
 
         """
         import numpy as np  # noqa: PLC0415
 
         from .mesh import _Float32Array, _point_data_to_scene  # noqa: PLC0415
 
+        # normalize the index, as the page looks actors up by a non-negative one
+        actor_index = range(len(self.actors))[actor_index]
         actor_info = self.actors[actor_index]
         mesh = actor_info["mesh"]
-        update: dict[str, object] = {"actor": actor_index}
         if points is not None:
             points = np.asarray(points, dtype=float)
-            if mesh._scene_data is not None or points.shape != mesh.points.shape:  # type: ignore[attr-defined]  # noqa: SLF001
-                msg = f"points must replace the {mesh.points.shape} points of a plain mesh"  # type: ignore[attr-defined]
-                raise ValueError(msg)
+        arrays = {name: np.asarray(array) for name, array in (point_data or {}).items()}
+        # validate the whole request before changing anything
+        _validate_update(mesh, points, arrays, scalars)
+
+        update: dict[str, object] = {"actor": actor_index}
+        if points is not None:
             mesh.points = points  # type: ignore[attr-defined]
             update["points"] = _Float32Array(points)
-        if point_data:
-            for name, array in point_data.items():
-                array = np.asarray(array)  # noqa: PLW2901
-                if len(array) != mesh.n_points:  # type: ignore[attr-defined]
-                    msg = f"point_data[{name!r}] has {len(array)} rows, expected {mesh.n_points}"  # type: ignore[attr-defined]
-                    raise ValueError(msg)
+        if arrays:
+            for name, array in arrays.items():
                 mesh.point_data[name] = array  # type: ignore[attr-defined]
             update["pointData"] = _point_data_to_scene(
-                {name: mesh.point_data[name] for name in point_data},  # type: ignore[attr-defined]
+                {name: mesh.point_data[name] for name in arrays},  # type: ignore[attr-defined]
             )
         if scalars is not None:
             actor_info["scalars"] = scalars
-        if scalars is not None or actor_info.get("scalars") in (point_data or {}):
+        if scalars is not None or actor_info.get("scalars") in arrays:
             update["scalars"] = self._build_scalars_data(actor_info)
         return update
 
@@ -725,7 +749,7 @@ class _BaseHTMLRenderer:
         smooth_shading = bool(actor_info.get("smooth_shading", True))
         style = str(actor_info.get("style", "surface"))
 
-        source_data = mesh.to_scene_data()  # type: ignore[attr-defined]
+        source_data = mesh._to_scene_data()  # type: ignore[attr-defined]  # noqa: SLF001
 
         # Normals configuration
         normals_data = None

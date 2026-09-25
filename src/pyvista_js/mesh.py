@@ -231,7 +231,7 @@ class _Float32Array:
     __slots__ = ("array",)
 
     def __init__(self, array: ArrayLike) -> None:
-        self.array = np.asarray(array, dtype=np.float32).ravel()
+        self.array = np.array(array, dtype=np.float32).ravel()
 
     def __len__(self) -> int:
         return self.array.size
@@ -250,6 +250,29 @@ class _Float32Array:
     def to_json(self) -> str:
         """Return the values as a JSON array of shortest float32 text."""
         return "[" + ",".join(self.finite().astype(str).tolist()) + "]"
+
+
+def _plain_scene(obj: object) -> object:
+    """Return scene data with each ``_Float32Array`` replaced by a list of floats.
+
+    Parameters
+    ----------
+    obj : object
+        Scene data that may contain ``_Float32Array`` values.
+
+    Returns
+    -------
+    object
+        The same data, serializable by :func:`json.dumps`.
+
+    """
+    if isinstance(obj, _Float32Array):
+        return obj.tolist()
+    if isinstance(obj, dict):
+        return {key: _plain_scene(value) for key, value in obj.items()}
+    if isinstance(obj, list):
+        return [_plain_scene(value) for value in obj]
+    return obj
 
 
 _FLOAT32_TOKEN = re.compile(r'"\\u0000pvjs-f32-(\d+)\\u0000"')
@@ -1143,6 +1166,14 @@ class PolyData:
             Source configuration with ``"type"`` key and type-specific parameters.
 
         """
+        return _plain_scene(self._to_scene_data())  # type: ignore[return-value]
+
+    def _to_scene_data(self) -> dict[str, object]:
+        """Return the source description, with float arrays as ``_Float32Array``.
+
+        Serialize it with ``_dumps_scene``.
+
+        """
         if self._scene_data is not None:
             data: dict[str, object] = dict(self._scene_data)
         else:
@@ -1580,6 +1611,14 @@ class UnstructuredGrid:
         -------
         dict
             Source configuration with ``"type": "mesh"``.
+
+        """
+        return _plain_scene(self._to_scene_data())  # type: ignore[return-value]
+
+    def _to_scene_data(self) -> dict[str, object]:
+        """Return the grid description, with float arrays as ``_Float32Array``.
+
+        Serialize it with ``_dumps_scene``.
 
         """
         if self._scene_data is not None:

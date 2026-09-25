@@ -209,6 +209,7 @@ interface VtkInteractor {
   setView: (view: VtkOpenGlRenderWindow) => void;
   initialize: () => void;
   bindEvents: (container: HTMLElement) => void;
+  unbindEvents: () => void;
 }
 
 /** A trackball camera interaction style. */
@@ -502,7 +503,6 @@ interface SceneData {
   camera?: CameraConfig;
 }
 
-// eslint-disable-next-line @typescript-eslint/consistent-type-definitions, jsdoc/require-jsdoc -- global interface augmentation requires interface, not type
 /** The vtk.js objects behind one scene actor, kept so updates can reach them. */
 interface ActorHandle {
   polydata: VtkPolyData;
@@ -512,6 +512,10 @@ interface ActorHandle {
 
 /** The vtk.js objects of one rendered scene, keyed by container ID on `window.__pvjs`. */
 interface SceneHandle {
+  container: HTMLElement;
+  /** Whether the container has been seen in the page, so its removal can be detected. */
+  wasConnected: boolean;
+  interactor: VtkInteractor;
   renderWindow: VtkRenderWindow;
   renderer: VtkRenderer;
   /** Indexed like `SceneData.actors`; undefined where an actor could not be built. */
@@ -527,6 +531,7 @@ interface ActorUpdate {
   scalars?: ScalarsConfig;
 }
 
+// eslint-disable-next-line @typescript-eslint/consistent-type-definitions, jsdoc/require-jsdoc -- global interface augmentation requires interface, not type
 interface Window {
   renderer: VtkRenderer;
   renderWindow: VtkRenderWindow;

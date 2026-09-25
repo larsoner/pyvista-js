@@ -1068,7 +1068,7 @@ def test_unstructured_grid_point_data() -> None:
     assert len(pd_arrays) == 1
     assert pd_arrays[0]["name"] == "temperature"
     assert pd_arrays[0]["numberOfComponents"] == 1
-    assert pd_arrays[0]["values"].tolist() == [100.0, 200.0, 300.0, 400.0]
+    assert pd_arrays[0]["values"] == [100.0, 200.0, 300.0, 400.0]
 
 
 def test_unstructured_grid_dict_access() -> None:
@@ -1137,7 +1137,7 @@ def json_backend(request, monkeypatch) -> None:
 
 def _emitted_source(mesh: PolyData) -> dict:
     """Return the mesh source as parsed back from the emitted scene JSON."""
-    return json.loads(_dumps_scene(mesh.to_scene_data()))
+    return json.loads(_dumps_scene(mesh._to_scene_data()))
 
 
 @pytest.mark.usefixtures("json_backend")
@@ -1171,7 +1171,7 @@ def test_scene_json_is_compact() -> None:
     """Test that scene JSON has no whitespace after separators."""
     mesh = PolyData(np.zeros((3, 3)), [3, 0, 1, 2])
     mesh.point_data["colors"] = np.full((3, 3), 255, np.uint8)
-    text = _dumps_scene(mesh.to_scene_data())
+    text = _dumps_scene(mesh._to_scene_data())
     assert '"polys":[3,0,1,2]' in text
     assert '"values":[255,255,255,' in text
     assert ", " not in text
@@ -1201,4 +1201,29 @@ def test_scene_json_non_finite_raises(bad: float) -> None:
     """Test that NaN and infinite values are rejected rather than emitted."""
     mesh = PolyData(np.array([[0.0, 0.0, 0.0], [1.0, bad, 0.0]]))
     with pytest.raises(ValueError, match="NaN or infinite"):
-        _dumps_scene(mesh.to_scene_data())
+        _dumps_scene(mesh._to_scene_data())
+
+
+def test_to_scene_data_is_json_serializable() -> None:
+    """Test that the public scene data has plain lists, for ``json.dumps``."""
+    sphere = Sphere()
+    sphere.point_data["values"] = sphere.points[:, 0]
+    contours = sphere.contour(isosurfaces=3, scalars=sphere.points[:, 2])
+    for mesh in (sphere, contours, _make_tetra_grid()):
+        scene = json.loads(json.dumps(mesh.to_scene_data()))
+        emitted = json.loads(_dumps_scene(mesh._to_scene_data()))
+        assert scene.keys() == emitted.keys()
+        for key in ("points", "pointData", "filters"):
+            np.testing.assert_array_equal(
+                np.array(_float_values(scene.get(key)), np.float32),
+                np.array(_float_values(emitted.get(key)), np.float32),
+            )
+
+
+def _float_values(obj: object) -> list[float]:
+    """Return the numbers in parsed scene JSON, depth first."""
+    if isinstance(obj, dict):
+        return [value for item in obj.values() for value in _float_values(item)]
+    if isinstance(obj, list):
+        return [value for item in obj for value in _float_values(item)]
+    return [obj] if isinstance(obj, (int, float)) and not isinstance(obj, bool) else []

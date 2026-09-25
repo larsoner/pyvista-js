@@ -651,3 +651,37 @@ def test_plotter_update_actor_send(monkeypatch) -> None:
     plotter.update_actor(0, point_data=colors)
     assert len(shown) == 1
     assert shown[0].startswith(f'window.pvjsApplyUpdate("{plotter.container_id}",')
+
+
+def test_build_update_data_negative_index() -> None:
+    """Test that a negative actor index is sent as the index the page uses."""
+    renderer = _colored_quad_renderer()
+    renderer.add_mesh_actor(Sphere())
+    assert renderer.build_update_data(-2)["actor"] == 0
+    with pytest.raises(IndexError):
+        renderer.build_update_data(-3)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"points": "shift", "point_data": {"bad": np.zeros(3)}},
+        {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.zeros(3)}},
+        {"point_data": {"colors": np.ones((4, 3), np.uint8)}, "scalars": "missing"},
+    ],
+)
+def test_build_update_data_invalid_changes_nothing(kwargs: dict) -> None:
+    """Test that a rejected update leaves the mesh and actor as they were."""
+    renderer = _colored_quad_renderer()
+    actor = renderer.actors[0]
+    mesh = actor["mesh"]
+    if kwargs.get("points") == "shift":
+        kwargs["points"] = mesh.points + 1
+    points = mesh.points.copy()
+    colors = mesh.point_data["colors"].copy()
+    with pytest.raises(ValueError, match=r"bad|missing"):
+        renderer.build_update_data(0, **kwargs)
+    np.testing.assert_array_equal(mesh.points, points)
+    np.testing.assert_array_equal(mesh.point_data["colors"], colors)
+    assert mesh.point_data.keys() == ["colors"]
+    assert actor["scalars"] == "colors"
