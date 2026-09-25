@@ -190,8 +190,9 @@ const sceneHandle: SceneHandle = {
     setupActor(actorConfig, index, renderer, renderWindow),
   ),
 };
+// no prototype, so container IDs such as "constructor" are not taken for its properties
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
-const liveScenes = pruneScenes(window.__pvjs ?? {});
+const liveScenes = pruneScenes(window.__pvjs ?? Object.create(null));
 // showing a plotter again reuses its container ID, and the earlier outputs stay live
 liveScenes[sceneData.containerId] = [...(liveScenes[sceneData.containerId] ?? []), sceneHandle];
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis

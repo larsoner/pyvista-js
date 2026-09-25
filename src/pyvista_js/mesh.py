@@ -1663,7 +1663,30 @@ def _scene_source(mesh: object) -> dict[str, object]:
     return mesh.to_scene_data()  # type: ignore[attr-defined, no-any-return]
 
 
+def _has_plain_points(mesh: object) -> bool:
+    """Return whether pages build the mesh from its points, so they can be replaced in place.
+
+    Parameters
+    ----------
+    mesh : object
+        The mesh.
+
+    Returns
+    -------
+    bool
+        False for meshes given by a source, filter, reader, or custom ``to_scene_data``.
+
+    """
+    cls = type(mesh)
+    return (
+        getattr(mesh, "_scene_data", True) is None
+        and getattr(cls, "to_scene_data", None) in _COMPACT_TO_SCENE_DATA
+        and getattr(cls, "_to_scene_data", None) in _PLAIN_TO_SCENE_DATA
+    )
+
+
 _COMPACT_TO_SCENE_DATA = (PolyData.to_scene_data, UnstructuredGrid.to_scene_data)
+_PLAIN_TO_SCENE_DATA = (PolyData._to_scene_data, UnstructuredGrid._to_scene_data)  # noqa: SLF001
 
 
 def Sphere(  # noqa: N802

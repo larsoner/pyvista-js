@@ -96,7 +96,7 @@ if TYPE_CHECKING:
 from jinja2 import Environment, StrictUndefined
 
 from .examples import CubeMap
-from .mesh import _dumps_scene, _scene_source
+from .mesh import _dumps_scene, _has_plain_points, _scene_source
 
 
 def scene_to_json(data: object) -> str:
@@ -240,13 +240,13 @@ def _validate_update(
 ) -> None:
     """Check that an actor update fits its mesh, raising ``ValueError`` if not."""
     if points is not None and (
-        mesh._scene_data is not None or points.shape != mesh.points.shape  # type: ignore[attr-defined]  # noqa: SLF001
+        not _has_plain_points(mesh) or points.shape != mesh.points.shape  # type: ignore[attr-defined]
     ):
         msg = f"points must replace the {mesh.points.shape} points of a plain mesh"  # type: ignore[attr-defined]
         raise ValueError(msg)
     for name, array in arrays.items():
-        if array.ndim not in (1, 2):
-            msg = f"point_data[{name!r}] must be 1- or 2-dimensional, got shape {array.shape}"
+        if array.ndim not in (1, 2) or 0 in array.shape[1:]:
+            msg = f"point_data[{name!r}] must be (n_points,) or (n_points, k>0), got {array.shape}"
             raise ValueError(msg)
         if len(array) != mesh.n_points:  # type: ignore[attr-defined]
             msg = f"point_data[{name!r}] has {len(array)} rows, expected {mesh.n_points}"  # type: ignore[attr-defined]

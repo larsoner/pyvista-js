@@ -654,6 +654,8 @@ def test_update_points_in_every_output(page: Page) -> None:
 
     """
     plotter = _plain_quad_plotter()
+    # an ID that names a property of plain objects must still work
+    plotter._container_id = "constructor"
     js_errors: list[str] = []
     page.on("console", lambda msg: js_errors.append(msg.text) if msg.type == "error" else None)
     _load_plotter_html(page, plotter)

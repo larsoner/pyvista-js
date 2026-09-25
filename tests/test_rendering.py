@@ -668,8 +668,9 @@ _POINTS = np.ones((4, 3))
     [
         ({"points": np.zeros((3, 3))}, "points must replace"),
         ({"points": _POINTS, "point_data": {"t": np.zeros(3)}}, "3 rows"),
-        ({"point_data": {**_COLORS, "t": np.zeros((4, 2, 2))}}, "1- or 2-dim"),
-        ({"point_data": {**_COLORS, "t": np.array(1.0)}}, "1- or 2-dim"),
+        ({"point_data": {**_COLORS, "t": np.zeros((4, 2, 2))}}, "must be"),
+        ({"point_data": {**_COLORS, "t": np.array(1.0)}}, "must be"),
+        ({"point_data": {"colors": np.ones((4, 0))}}, "must be"),
         ({"point_data": _COLORS, "scalars": "missing"}, "not a point-data"),
         ({"points": _POINTS, "point_data": {"t": [0, 1, np.nan, 3]}}, "NaN"),
         ({"points": np.full((4, 3), np.nan), "point_data": _COLORS}, "NaN"),
@@ -700,3 +701,6 @@ def test_to_scene_data_override_is_rendered() -> None:
     renderer.add_mesh_actor(_CustomMesh(np.zeros((1, 3))))
     source = json.loads(scene_to_json(renderer._build_scene_data()))["actors"][0]["source"]
     assert source == {"type": "sphere", "radius": 2.0}
+    # the page shows the custom source, not the mesh's points, so those cannot be replaced
+    with pytest.raises(ValueError, match="points must replace"):
+        renderer.build_update_data(0, points=np.ones((1, 3)))
