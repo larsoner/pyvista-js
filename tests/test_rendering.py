@@ -668,6 +668,10 @@ def test_build_update_data_negative_index() -> None:
         {"points": "shift", "point_data": {"bad": np.zeros(3)}},
         {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.zeros(3)}},
         {"point_data": {"colors": np.ones((4, 3), np.uint8)}, "scalars": "missing"},
+        {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.zeros((4, 2, 2))}},
+        {"point_data": {"colors": np.ones((4, 3), np.uint8), "bad": np.array(1.0)}},
+        {"points": "shift", "point_data": {"t": [0.0, 1.0, np.nan, 3.0]}},
+        {"points": "nan", "point_data": {"colors": np.ones((4, 3), np.uint8)}},
     ],
 )
 def test_build_update_data_invalid_changes_nothing(kwargs: dict) -> None:
@@ -677,9 +681,11 @@ def test_build_update_data_invalid_changes_nothing(kwargs: dict) -> None:
     mesh = actor["mesh"]
     if kwargs.get("points") == "shift":
         kwargs["points"] = mesh.points + 1
+    elif kwargs.get("points") == "nan":
+        kwargs["points"] = np.where(np.eye(4, 3, dtype=bool), np.nan, mesh.points)
     points = mesh.points.copy()
     colors = mesh.point_data["colors"].copy()
-    with pytest.raises(ValueError, match=r"bad|missing"):
+    with pytest.raises(ValueError, match=r"bad|missing|NaN"):
         renderer.build_update_data(0, **kwargs)
     np.testing.assert_array_equal(mesh.points, points)
     np.testing.assert_array_equal(mesh.point_data["colors"], colors)

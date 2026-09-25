@@ -538,6 +538,7 @@ interface Window {
   openGlRenderWindow: VtkOpenGlRenderWindow;
   interactor: VtkInteractor;
   __pvjs?: Record<string, SceneHandle>;
+  __pvjsObserver?: MutationObserver | undefined;
   pvjsApplyUpdate: (containerId: string, update: ActorUpdate) => void;
 }
 

@@ -244,6 +244,9 @@ def _validate_update(
         msg = f"points must replace the {mesh.points.shape} points of a plain mesh"  # type: ignore[attr-defined]
         raise ValueError(msg)
     for name, array in arrays.items():
+        if array.ndim not in (1, 2):
+            msg = f"point_data[{name!r}] must be 1- or 2-dimensional, got shape {array.shape}"
+            raise ValueError(msg)
         if len(array) != mesh.n_points:  # type: ignore[attr-defined]
             msg = f"point_data[{name!r}] has {len(array)} rows, expected {mesh.n_points}"  # type: ignore[attr-defined]
             raise ValueError(msg)
@@ -706,9 +709,10 @@ class _BaseHTMLRenderer:
         IndexError
             If there is no actor ``actor_index``.
         ValueError
-            If an array does not have one row per point, ``points`` is given
-            for a mesh that is not defined by its points, or ``scalars`` names
-            no point-data array. Nothing is changed when this is raised.
+            If an array does not have one row per point or has NaN or
+            infinite values, ``points`` is given for a mesh that is not
+            defined by its points, or ``scalars`` names no point-data array.
+            Nothing is changed when this is raised.
 
         """
         import numpy as np  # noqa: PLC0415
@@ -722,19 +726,23 @@ class _BaseHTMLRenderer:
         if points is not None:
             points = np.asarray(points, dtype=float)
         arrays = {name: np.asarray(array) for name, array in (point_data or {}).items()}
-        # validate the whole request before changing anything
+        # validate the whole request, and build what is sent, before changing anything
         _validate_update(mesh, points, arrays, scalars)
-
         update: dict[str, object] = {"actor": actor_index}
         if points is not None:
-            mesh.points = points  # type: ignore[attr-defined]
             update["points"] = _Float32Array(points)
         if arrays:
-            for name, array in arrays.items():
-                mesh.point_data[name] = array  # type: ignore[attr-defined]
-            update["pointData"] = _point_data_to_scene(
-                {name: mesh.point_data[name] for name in arrays},  # type: ignore[attr-defined]
-            )
+            update["pointData"] = _point_data_to_scene(arrays)
+        payloads = [update.get("points")]
+        payloads += [entry["values"] for entry in update.get("pointData", [])]  # type: ignore[attr-defined]
+        for payload in payloads:
+            if isinstance(payload, _Float32Array):
+                payload.finite()
+
+        if points is not None:
+            mesh.points = points  # type: ignore[attr-defined]
+        for name, array in arrays.items():
+            mesh.point_data[name] = array  # type: ignore[attr-defined]
         if scalars is not None:
             actor_info["scalars"] = scalars
         if scalars is not None or actor_info.get("scalars") in arrays:

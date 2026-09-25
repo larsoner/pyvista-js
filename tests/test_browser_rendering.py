@@ -697,7 +697,16 @@ def test_removed_scene_is_released(page: Page) -> None:
     container_id = plotter.container_id
     assert page.evaluate("id => id in window.__pvjs", container_id)
 
-    page.evaluate("id => document.getElementById(id).remove()", container_id)
+    # the scene is freed as soon as the page changes, with no later pyvista-js call
+    remaining = page.evaluate(
+        """async id => {
+            document.getElementById(id).remove();
+            await new Promise(resolve => setTimeout(resolve));
+            return [Object.keys(window.__pvjs).length, window.__pvjsObserver === undefined];
+        }""",
+        container_id,
+    )
+    assert remaining == [0, True]
     error = page.evaluate(
         """id => {
             try {
@@ -710,4 +719,3 @@ def test_removed_scene_is_released(page: Page) -> None:
         container_id,
     )
     assert error == f"No pyvista-js scene in container {container_id}"
-    assert page.evaluate("() => Object.keys(window.__pvjs).length") == 0

@@ -196,6 +196,7 @@ releaseScene(liveScenes[sceneData.containerId]);
 liveScenes[sceneData.containerId] = sceneHandle;
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
 window.__pvjs = liveScenes;
+watchScenes();
 // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
 window.pvjsApplyUpdate = (containerId: string, update: ActorUpdate): void => {
   // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
@@ -824,8 +825,8 @@ function releaseScene(scene: SceneHandle | undefined): void {
 /**
  * Release and forget the scenes whose containers have left the page.
  *
- * Notebook outputs are removed without notice, so this runs whenever a scene
- * is added or updated. A container that has not been in the page yet (e.g. a
+ * Notebook outputs are removed without notice, so this runs whenever the page
+ * changes and whenever a scene is added or updated. A container that has not been in the page yet (e.g. a
  * JupyterLab output that is not attached yet) is kept.
  * @param scenes
  * @returns `scenes`, without the removed scenes.
@@ -840,6 +841,30 @@ function pruneScenes(scenes: Record<string, SceneHandle>): Record<string, SceneH
     }
   }
   return scenes;
+}
+
+/**
+ * Prune the scenes whenever the page changes, so removing an output frees its
+ * scene even if no other scene is added or updated afterwards.
+ *
+ * One observer serves all scenes, and it stops once none are left.
+ */
+function watchScenes(): void {
+  // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+  if (window.__pvjsObserver) {
+    return;
+  }
+  const observer = new MutationObserver(() => {
+    // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+    if (Object.keys(pruneScenes(window.__pvjs ?? {})).length === 0) {
+      observer.disconnect();
+      // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+      window.__pvjsObserver = undefined;
+    }
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+  // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+  window.__pvjsObserver = observer;
 }
 
 /**

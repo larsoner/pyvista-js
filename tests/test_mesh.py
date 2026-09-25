@@ -1189,6 +1189,17 @@ def test_scene_json_uint8_point_data_unchanged() -> None:
 
 
 @pytest.mark.usefixtures("json_backend")
+@pytest.mark.parametrize("name", ["\x00pvjs-f32-0\x00", "\x00pvjs-f32-999\x00", "pvjs-f32-0"])
+def test_scene_json_keeps_placeholder_like_strings(name: str) -> None:
+    """Test that strings in the data are never taken for float-array placeholders."""
+    mesh = PolyData(np.zeros((2, 3)))
+    mesh.point_data[name] = np.array([1.5, 2.5])
+    source = _emitted_source(mesh)
+    assert source["pointData"][0]["name"] == name
+    assert source["pointData"][0]["values"] == [1.5, 2.5]
+
+
+@pytest.mark.usefixtures("json_backend")
 def test_scene_json_unserializable_raises() -> None:
     """Test that objects JSON cannot represent raise a TypeError."""
     with pytest.raises(TypeError):

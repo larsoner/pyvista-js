@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -275,9 +276,6 @@ def _plain_scene(obj: object) -> object:
     return obj
 
 
-_FLOAT32_TOKEN = re.compile(r'"\\u0000pvjs-f32-(\d+)\\u0000"')
-
-
 def _dumps_scene(obj: object) -> str:
     """Serialize scene data to compact JSON, splicing in ``_Float32Array`` text.
 
@@ -310,17 +308,21 @@ def _dumps_scene(obj: object) -> str:
                 raise err.__cause__ from None
             raise
 
+    # each array is written as a placeholder string, then swapped for its text;
+    # a random nonce keeps strings in the data from being taken for placeholders
     fragments: list[str] = []  # type: ignore[unreachable]
+    nonce = secrets.token_hex(16)
 
     def default(value: object) -> str:
         if not isinstance(value, _Float32Array):
             msg = f"Object of type {type(value).__name__} is not JSON serializable"
             raise TypeError(msg)
         fragments.append(value.to_json())
-        return f"\x00pvjs-f32-{len(fragments) - 1}\x00"
+        return f"pvjs-f32-{nonce}-{len(fragments) - 1}"
 
     text = json.dumps(obj, default=default, separators=(",", ":"))
-    return _FLOAT32_TOKEN.sub(lambda match: fragments[int(match.group(1))], text)
+    token = re.compile(rf'"pvjs-f32-{nonce}-(\d+)"')
+    return token.sub(lambda match: fragments[int(match.group(1))], text)
 
 
 def _point_data_to_scene(point_data: PointData | dict[str, np.ndarray]) -> list[dict[str, object]]:
