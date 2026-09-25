@@ -454,6 +454,8 @@ interface TextureConfig {
 
 /** Full configuration for a single actor in the scene. */
 interface ActorConfig {
+  /** Stable ID of the actor, which updates use to find it. */
+  id: string;
   source: SourceConfig;
   color: [number, number, number];
   opacity: number;
@@ -505,6 +507,7 @@ interface SceneData {
 
 /** The vtk.js objects behind one scene actor, kept so updates can reach them. */
 interface ActorHandle {
+  id: string;
   polydata: VtkPolyData;
   mapper: VtkMapper;
   actor: VtkActor;
@@ -518,14 +521,14 @@ interface SceneHandle {
   interactor: VtkInteractor;
   renderWindow: VtkRenderWindow;
   renderer: VtkRenderer;
-  /** Indexed like `SceneData.actors`; undefined where an actor could not be built. */
+  /** In the order of `SceneData.actors`; undefined where an actor could not be built. */
   actors: (ActorHandle | undefined)[];
 }
 
 /** An in-place update of one actor, as built by `build_update_data` in Python. */
 interface ActorUpdate {
-  /** Index of the actor in `SceneData.actors`. */
-  actor: number;
+  /** ID of the actor, as in `ActorConfig.id`. */
+  actor: string;
   points?: number[];
   pointData?: PointDataArray[];
   scalars?: ScalarsConfig;
@@ -533,10 +536,11 @@ interface ActorUpdate {
 
 // eslint-disable-next-line @typescript-eslint/consistent-type-definitions, jsdoc/require-jsdoc -- global interface augmentation requires interface, not type
 interface Window {
-  renderer: VtkRenderer;
-  renderWindow: VtkRenderWindow;
-  openGlRenderWindow: VtkOpenGlRenderWindow;
-  interactor: VtkInteractor;
+  /** The most recent scene's objects, until that scene is released. */
+  renderer?: VtkRenderer | undefined;
+  renderWindow?: VtkRenderWindow | undefined;
+  openGlRenderWindow?: VtkOpenGlRenderWindow | undefined;
+  interactor?: VtkInteractor | undefined;
   /** The live scenes by container ID; showing a plotter again adds another. */
   __pvjs?: Record<string, SceneHandle[]>;
   __pvjsObserver?: MutationObserver | undefined;

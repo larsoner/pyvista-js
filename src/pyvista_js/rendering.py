@@ -71,6 +71,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import secrets
 import sys
 import tempfile
 import time
@@ -670,6 +671,15 @@ class _BaseHTMLRenderer:
             "direct": direct,
         }
 
+    @staticmethod
+    def _actor_id(actor_info: dict[str, object]) -> str:
+        """Return the actor's ID, which pages use to find it for updates.
+
+        Unlike the actor's index, it is not reused after :meth:`clear`, so an
+        update never reaches an unrelated actor in an earlier output.
+        """
+        return str(actor_info.setdefault("id", secrets.token_hex(8)))
+
     def build_update_data(
         self,
         actor_index: int,
@@ -701,7 +711,7 @@ class _BaseHTMLRenderer:
         Returns
         -------
         dict
-            The update message, with ``"actor"`` and whichever of ``"points"``,
+            The update message, with the ``"actor"`` ID and whichever of ``"points"``,
             ``"pointData"`` and ``"scalars"`` changed.
 
         Raises
@@ -728,7 +738,7 @@ class _BaseHTMLRenderer:
         arrays = {name: np.asarray(array) for name, array in (point_data or {}).items()}
         # validate the whole request, and build what is sent, before changing anything
         _validate_update(mesh, points, arrays, scalars)
-        update: dict[str, object] = {"actor": actor_index}
+        update: dict[str, object] = {"actor": self._actor_id(actor_info)}
         if points is not None:
             update["points"] = _Float32Array(points)
         if arrays:
@@ -800,6 +810,7 @@ class _BaseHTMLRenderer:
         actor_type = actor_info.get("type", "mesh")
 
         result: dict[str, object] = {
+            "id": self._actor_id(actor_info),
             "source": source_data,
             "normals": normals_data,
             "mapper": {"class": "vtkMapper"},

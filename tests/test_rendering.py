@@ -573,7 +573,7 @@ def test_build_update_data_matches_ts_schema() -> None:
     for array in update["pointData"]:
         assert set(array) == _ts_interface_fields("PointDataArray")
     assert set(update["scalars"]) == _ts_interface_fields("ScalarsConfig")
-    assert update["actor"] == 0
+    assert update["actor"] == renderer.actors[0]["id"]
     assert update["points"] == points.ravel().tolist()
     colors, t = update["pointData"]
     assert (colors["dataType"], colors["values"]) == ("Uint8Array", [255] * 12)
@@ -618,7 +618,8 @@ def test_generate_update_js() -> None:
     renderer = _colored_quad_renderer()
     renderer.create_container("my-scene")
     js = renderer._generate_update_js(renderer.build_update_data(0))
-    assert js == 'window.pvjsApplyUpdate("my-scene", {"actor":0});\n'
+    actor_id = renderer.actors[0]["id"]
+    assert js == f'window.pvjsApplyUpdate("my-scene", {{"actor":"{actor_id}"}});\n'
 
 
 def test_plotter_update_actor_requires_html_renderer() -> None:
@@ -654,10 +655,10 @@ def test_plotter_update_actor_send(monkeypatch) -> None:
 
 
 def test_build_update_data_negative_index() -> None:
-    """Test that a negative actor index is sent as the index the page uses."""
+    """Test that a negative actor index updates the actor it counts back to."""
     renderer = _colored_quad_renderer()
     renderer.add_mesh_actor(Sphere())
-    assert renderer.build_update_data(-2)["actor"] == 0
+    assert renderer.build_update_data(-2)["actor"] == renderer.actors[0]["id"]
     with pytest.raises(IndexError):
         renderer.build_update_data(-3)
 
@@ -691,3 +692,14 @@ def test_build_update_data_invalid_changes_nothing(kwargs: dict) -> None:
     np.testing.assert_array_equal(mesh.point_data["colors"], colors)
     assert mesh.point_data.keys() == ["colors"]
     assert actor["scalars"] == "colors"
+
+
+def test_actor_ids_are_stable_and_not_reused() -> None:
+    """Test that actor IDs match between scene and updates, and survive clear()."""
+    renderer = _colored_quad_renderer()
+    scene_id = renderer._build_scene_data()["actors"][0]["id"]  # type: ignore[index]
+    assert renderer.build_update_data(0)["actor"] == scene_id
+    assert renderer._build_scene_data()["actors"][0]["id"] == scene_id  # type: ignore[index]
+    renderer.clear()
+    renderer.add_mesh_actor(Sphere())
+    assert renderer.build_update_data(0)["actor"] != scene_id

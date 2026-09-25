@@ -204,8 +204,8 @@ window.pvjsApplyUpdate = (containerId: string, update: ActorUpdate): void => {
   if (!scenes) {
     throw new Error(`No pyvista-js scene in container ${containerId}`);
   }
-  // an output shown before the actor was added does not have it
-  const withActor = scenes.filter((scene) => scene.actors[update.actor]);
+  // an output shown before the actor was added, or before a clear(), does not have it
+  const withActor = scenes.filter((scene) => findActor(scene, update.actor));
   if (withActor.length === 0) {
     throw new Error(`No actor ${update.actor} in container ${containerId}`);
   }
@@ -818,7 +818,7 @@ function setupActor(
   applyTexture(actor, renWin, cfg.texture);
 
   ren.addActor(actor);
-  return { polydata, mapper, actor };
+  return { id: cfg.id, polydata, mapper, actor };
 }
 
 /**
@@ -827,6 +827,28 @@ function setupActor(
  */
 function releaseScene(scene: SceneHandle): void {
   scene.interactor.unbindEvents();
+  // the legacy globals point at the most recent scene, and would keep it alive
+  // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+  if (window.renderWindow === scene.renderWindow) {
+    // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+    window.renderer = undefined;
+    // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+    window.renderWindow = undefined;
+    // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+    window.openGlRenderWindow = undefined;
+    // biome-ignore lint/style/useGlobalThis: window augmentation requires window, not globalThis
+    window.interactor = undefined;
+  }
+}
+
+/**
+ * Find a scene's actor by its ID.
+ * @param scene
+ * @param actorId
+ * @returns The actor's vtk.js objects, or undefined if the scene does not have it.
+ */
+function findActor(scene: SceneHandle, actorId: string): ActorHandle | undefined {
+  return scene.actors.find((handle) => handle?.id === actorId);
 }
 
 /**
@@ -893,7 +915,7 @@ function watchScenes(): void {
  * @param update
  */
 function applyActorUpdate(scene: SceneHandle, update: ActorUpdate): void {
-  const handle = scene.actors[update.actor];
+  const handle = findActor(scene, update.actor);
   if (!handle) {
     return;
   }

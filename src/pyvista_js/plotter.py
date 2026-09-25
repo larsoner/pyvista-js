@@ -483,8 +483,8 @@ class Plotter:
         >>> sphere.point_data["colors"] = np.zeros((sphere.n_points, 3), np.uint8)
         >>> _ = plotter.add_mesh(sphere, scalars="colors")
         >>> red = np.tile(np.array([255, 0, 0], np.uint8), (sphere.n_points, 1))
-        >>> plotter.update_actor(0, point_data={"colors": red})["actor"]
-        0
+        >>> plotter.update_actor(0, point_data={"colors": red})["pointData"][0]["name"]
+        'colors'
 
         """
         renderer = self._renderer

@@ -708,11 +708,15 @@ def test_removed_scene_is_released(page: Page) -> None:
         """async id => {
             document.getElementById(id).remove();
             await new Promise(resolve => setTimeout(resolve));
-            return [Object.keys(window.__pvjs).length, window.__pvjsObserver === undefined];
+            return [
+                Object.keys(window.__pvjs).length,
+                window.__pvjsObserver === undefined,
+                window.renderWindow === undefined,
+            ];
         }""",
         container_id,
     )
-    assert remaining == [0, True]
+    assert remaining == [0, True, True]
     error = page.evaluate(
         """id => {
             try {
@@ -784,3 +788,43 @@ def test_show_twice_keeps_both_outputs_live(page: Page) -> None:
     )
     assert remaining == 1
     assert js_errors == []
+
+
+@pytest.mark.playwright
+def test_update_after_clear_skips_earlier_output(page: Page) -> None:
+    """Test that an update for a new actor leaves an output shown before clear() alone.
+
+    Parameters
+    ----------
+    page : Page
+        Playwright page fixture for browser automation.
+
+    """
+    import numpy as np  # noqa: PLC0415
+
+    from pyvista_js import PolyData  # noqa: PLC0415
+    from pyvista_js.rendering import scene_to_json  # noqa: PLC0415
+
+    plotter = _plain_quad_plotter()
+    first_points = plotter._renderer.actors[0]["mesh"].points.ravel().tolist()  # type: ignore[attr-defined]
+    _load_plotter_html(page, plotter)
+    container_id = plotter.container_id
+    # clear, add an unrelated mesh at the same index, and show it as a second output
+    plotter.clear()
+    triangle = PolyData(np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0]], float), [3, 0, 1, 2])
+    plotter.add_mesh(triangle)
+    page.evaluate(plotter._renderer._generate_render_js())  # type: ignore[attr-defined]
+    page.wait_for_timeout(500)
+
+    moved = triangle.points * 0.5
+    update = plotter.update_actor(0, points=moved, send=False)
+    page.evaluate(
+        "([id, update]) => window.pvjsApplyUpdate(id, update)",
+        [container_id, json.loads(scene_to_json(update))],
+    )
+    got = page.evaluate(
+        "id => window.__pvjs[id].map("
+        "scene => Array.from(scene.actors[0].polydata.getPoints().getData()))",
+        container_id,
+    )
+    assert got == [first_points, moved.ravel().tolist()]
