@@ -923,7 +923,11 @@ class Plotter:
         """
         # by identity, since actors are dicts, which compare equal by value
         n_actors = len(self._actors)
-        self._actors = [info for info in self._actors if info["actor"] is not actor]
+        self._actors = [
+            info
+            for info in self._actors
+            if "actor" not in info or info["actor"] is not actor
+        ]
         self._renderer.actors = [info for info in self._renderer.actors if info is not actor]
         return len(self._actors) < n_actors
 
