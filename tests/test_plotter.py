@@ -41,6 +41,21 @@ def test_clear() -> None:
     assert len(plotter.actors) == 0
 
 
+def test_remove_actor() -> None:
+    """Test removing one actor leaves the others, even ones equal to it."""
+    plotter = Plotter()
+    mesh = Sphere()
+    first = plotter.add_mesh(mesh)
+    second = plotter.add_mesh(mesh)
+    assert first == second  # so removal must go by identity
+
+    assert plotter.remove_actor(first)
+    assert not plotter.remove_actor(first)
+    assert len(plotter.actors) == 1
+    assert plotter.actors[0]["actor"] is second
+    assert plotter.generate_standalone_html().count('"id":') == 1
+
+
 def test_multiple_meshes() -> None:
     """Test adding multiple meshes."""
     plotter = Plotter()
