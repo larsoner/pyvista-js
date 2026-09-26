@@ -469,6 +469,7 @@ class _BaseHTMLRenderer:
         Examples
         --------
         >>> import pyvista_js as pv
+        >>> from pyvista_js.rendering import get_renderer
         >>> renderer = get_renderer()
         >>> renderer.add_light(pv.Light(position=(1, 1, 1), intensity=2.0))
 
@@ -486,6 +487,7 @@ class _BaseHTMLRenderer:
         Examples
         --------
         >>> import pyvista_js as pv
+        >>> from pyvista_js.rendering import get_renderer
         >>> renderer = get_renderer()
         >>> renderer.add_text_actor(pv.Text("Hello", position=(0.5, 0.9)))
 
