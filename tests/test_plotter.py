@@ -3,11 +3,13 @@
 import pathlib
 import tempfile
 import webbrowser
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from pyvista_js import Camera, Cube, Cylinder, Plotter, PolyData, Sphere
+from pyvista_js.rendering import _launch_chromium
 
 
 def test_plotter_creation() -> None:
@@ -1208,6 +1210,20 @@ def test_screenshot_returns_array() -> None:
     assert isinstance(img, np.ndarray)
     assert img.ndim == 3
     assert img.shape[2] in (3, 4)  # RGB or RGBA
+
+
+def test_screenshot_falls_back_to_chrome() -> None:
+    """Test screenshots use an installed Chrome without ``playwright install``."""
+    error = pytest.importorskip("playwright.sync_api").Error
+
+    def launch(**kwargs: object) -> object:
+        if "channel" not in kwargs:
+            msg = "Executable doesn't exist"
+            raise error(msg)
+        return kwargs
+
+    playwright = SimpleNamespace(chromium=SimpleNamespace(launch=launch))
+    assert _launch_chromium(playwright) == {"headless": True, "channel": "chrome"}
 
 
 def test_screenshot_with_filename(tmp_path) -> None:

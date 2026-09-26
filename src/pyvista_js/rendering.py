@@ -85,6 +85,7 @@ if TYPE_CHECKING:
 
     import numpy as np
     from numpy.typing import ArrayLike
+    from playwright.sync_api import Browser, Playwright
 
     from .camera import Camera
     from .light import Light
@@ -1186,6 +1187,28 @@ class VTKJSRenderer(_BaseHTMLRenderer):
             self.renderer.removeAllActors()
 
 
+def _launch_chromium(playwright: Playwright) -> Browser:
+    """Launch headless Chromium, or an installed Google Chrome if Playwright has none.
+
+    Parameters
+    ----------
+    playwright : playwright.sync_api.Playwright
+        The running Playwright.
+
+    Returns
+    -------
+    playwright.sync_api.Browser
+        The browser.
+
+    """
+    from playwright.sync_api import Error  # noqa: PLC0415
+
+    try:
+        return playwright.chromium.launch(headless=True)
+    except Error:  # no ``playwright install chromium``
+        return playwright.chromium.launch(headless=True, channel="chrome")
+
+
 def _playwright_capture(html_path: str, w: int, h: int, omit_bg: bool) -> bytes:  # noqa: FBT001
     """Capture a screenshot of an HTML file using Playwright in a thread.
 
@@ -1209,7 +1232,7 @@ def _playwright_capture(html_path: str, w: int, h: int, omit_bg: bool) -> bytes:
     from playwright.sync_api import sync_playwright  # noqa: PLC0415
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = _launch_chromium(p)
         pg = browser.new_page(viewport={"width": w, "height": h})
         pg.goto(f"file://{html_path}")
         pg.wait_for_timeout(2000)
