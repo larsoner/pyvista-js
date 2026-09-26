@@ -145,11 +145,13 @@ else:
     VTK_AVAILABLE = False
     document = None  # type: ignore[assignment]
 
-# Check if IPython is available
+# Check if running in IPython (Jupyter, JupyterLite, the IPython shell)
 try:
+    from IPython import get_ipython
     from IPython.display import HTML, Javascript, display
 
-    IPYTHON_AVAILABLE = True
+    # installed is not enough: a plain script still needs the browser renderer
+    IPYTHON_AVAILABLE = get_ipython() is not None
 except ImportError:
     IPYTHON_AVAILABLE = False
     HTML = None  # type: ignore[assignment]
